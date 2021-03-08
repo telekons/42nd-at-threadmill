@@ -1,0 +1,288 @@
+\documentclass{article}
+\usepackage{hyperref}
+\usepackage{amsmath}
+\usepackage{charter}
+
+\begin{document}
+
+\title{A design for a fast, mostly-concurrent hash table}
+\author{Hayley Patton}
+\date{Draft of \today}
+\maketitle
+
+We have wanted to design a concurrent hash table which is designed to
+handle epheremal mappings, which are removed quickly. Our decentralise2
+implementation creates many such mappings, storing information on where
+to retrieve objects in a concurrent hash table, then removing it when
+the objects are successfully retrieved. Cliff Click's hash table (the
+\texttt{NonBlockingHashMap}\footnote{\url{https://github.com/boundary/high-scale-lib/blob/master/src/main/java/org/cliffc/high_scale_lib/NonBlockingHashMap.java}}),
+while usually providing excellent performance with many threads, does
+not handle such an application as gracefully, as it ``pins'' keys to
+entries in the table, requiring periodic resizes to remove keys.
+
+After playing around with the idea, we decided we sadly cannot remove
+the pinning requirement, as it is required to maintain important
+invariants of the table, and Click chose to accept these problems
+because the alternative is impossible. So we are left to optimise,
+rather than totally replace, the design of the table.
+
+There is one such optimisation we can make: we can maintain a
+\emph{metadata} table, summarising the state of the main entry table
+in a compact form that can be searched with SIMD instructions. Matt
+Kulukundis presented a serial hash table using parallel probing in a
+presentation entitled Designing a Fast, Efficient, Cache-friendly Hash
+Table, Step by Step.\footnote{
+  \url{https://www.youtube.com/watch?v=ncHmEUmJZf4}} This
+optimisation may still improve the performance of applications which
+handle epheremal mappings, as discussed later.
+
+Another optimisation could reduce the overhead of copying, by simplifying
+the protocol between updating and copying threads, but we are not yet
+confident this optimisation would be safe.
+
+\section{A quick rundown of Click's hash table}
+
+Cliff Click's hash table can be simplified down to a linear-probing hash
+table, which stores entries consisting of keys, values and ``prime''
+bits. Keys may, of course be ``empty'', and values may also be
+``tombstoned'' instead of having a value, as previously mentioned. The
+table implementation also defines some limit on how many entries can be
+probed, before it has probed too long, and the table should be resized.
+
+Every operation begins by hashing the key, and producing an index into
+the entry table. Typically, we would use a modulo function to wrap the
+hash value into the range of acceptable indices; but we may use a
+faster bitwise-and function, should we restrain the table size to
+powers of 2. Instead of writing
+$$ hash\text{-}value \;\mathrm{mod}\; table\text{-}size $$
+we may instead write
+$$ hash\text{-}value \otimes (table\text{-}size - 1) $$
+This hash value is the initial value of the \emph{probe position} for
+every operation.
+
+\subsection{Finding a value}
+
+To find a value associated with a key (as the Common Lisp
+\texttt{gethash} function does, and as the Java method \texttt{get}
+does):
+\begin{itemize}
+\item We load the key at the probe position.
+\item If the key is equal to the provided key, we then load the value
+  and prime bit.
+  \begin{itemize}
+  \item If the prime bit is set, wait for the current resize to
+    finish, and search again.
+  \item If the value is a tombstone, then there is no value stored for
+    the key. Return nothing.
+  \item Otherwise, return the value stored.
+  \end{itemize}
+\item If we exceeded the probe limit, then an entry could not have
+  been stored any further, so return nothing.
+\item Otherwise, increment the probe position (modulo the table size),
+  and try again.
+\end{itemize}
+
+\subsection{Associating a key with a value}
+
+To associate a value with a key, either inserting or updating a mapping
+(as the Common Lisp \texttt{(setf gethash)} function does, and as the
+Java method \texttt{put} does):
+\begin{itemize}
+\item We first attempt to ``claim'' an entry, ensuring that the entry
+  has the provided key stored in it.
+  \begin{itemize}
+  \item We load the key at the probe position.
+  \item If the key is empty, we then attempt to CAS (compare-and-swap)
+    the key with the provided key.
+    \begin{itemize}
+    \item If the CAS succeeds, we have successfully claimed this
+      entry.
+    \item If it did not succeed, load the key at the probe position
+      again.
+    \end{itemize}
+  \item If the key (which may be the key loaded after a failed CAS
+    from the previous step) is equal to the provided key, then we have
+    already claimed that entry.
+  \item If we exceed the probe limit while probing, then begin
+    resizing, and start over in the new table.
+  \end{itemize}
+\item We then update the value in the entry.
+  \begin{itemize}
+  \item We load the value and probe bit at the probe position.
+  \item If the probe bit is set, we need to start all over using the
+    new table.
+  \item Otherwise, attempt to CAS the loaded value and probe bit with
+    the provided value and a cleared bit.
+    \begin{itemize}
+    \item If the CAS succeeds, we have successfully inserted this entry.
+    \item If the CAS fails, re-load the value, and try again.
+    \end{itemize}
+  \end{itemize}
+\end{itemize}
+
+
+The same procedure applies for removing a key, except that we insert a
+tombstone value, and if the key is not present, either by finding an
+empty entry first, or by exceeding the probe limit, we do not need to
+insert anything.
+
+\subsection{Resizing}
+
+Resizing the table is relatively easy:
+\begin{itemize}
+\item Initialize a new table.
+\item For each entry in the old table:
+  \begin{itemize}
+  \item Atomically and unconditionally set the probe bit, preventing
+    new writes.
+  \item Read the key and value.
+  \item If the key is not empty, and the value is not a tombstone,
+    then insert the key and value into the new table.
+  \end{itemize}
+\item Atomically and unconditionally replace the table.
+\end{itemize}
+
+\section{How to introduce a metadata table}
+
+We first note that this table produces a lot of tombstones if the user
+removes mappings frequently, and so keys may have longer probe lengths,
+compared to a typical hash table. Improving the performance of probing
+could thus greatly improve this concurrent hash table.
+
+Kulukundis's table implements one method to improve the performance of
+probing, which is to summarise the state of the table into another table
+with smaller elements, which is called a \emph{metadata} table. This
+table condenses the normal entries, each two words (128 bits on modern
+computers), into eight bits of metadata. Each metadata element is either
+``empty'', or the lowest bits of the hash of the key stored.
+
+\subsection{The effects of stale metadata}
+
+We cannot update the metadata table and the entry table simultaneously,
+so we must update one first. If we update the entry table first, we can
+then verify that all the operations should still work as intended.
+
+When finding a value associated with a key, we would search for metadata
+matching the lowest bits of the hash of the provided key. We may find
+that the metadata is still empty, although there is an entry stored in
+the entry table. This is unfortunate, but acceptable. We may only
+guarantee that an update is visible when the procedure has completed,
+and this would not pose a problem.
+
+When associating a value with a key, we would search for metadata which
+either matches the lowest bits of the provided key, or is empty. We find
+that the metadata is still empty, although there is an entry stored in
+the entry table. This should not pose an issue, as we will then load the
+key and proceed based on the loaded key anyway.
+
+When removing a key, we would again search for metadata which matches
+the lowest bits of the provided key. As mentioned previously, if the
+metadata is empty, but there is an entry in the entry table, then the
+entry is not visible to the find procedure yet, and so it is also
+acceptable to find no entry to remove.
+
+\subsection{What do we gain?}
+
+An immediate advantage of the metadata table is that most \emph{misses}
+will require considerably fewer memory operations, loading fewer bytes
+than probing the entry table. Kulukundis encodes an empty key as the
+byte \texttt{\#x80}, and a present key as the lowest 7 bits of its
+hash.  Assuming the hash function is uniformly distributed, then we
+can determine there is a $ \frac{1}{2^7} $ (1 in 128) probability that
+we have a false positive, where the metadata bytes are equal, but the
+keys are not. This is an unlikely, but possible occurence. Provided
+that probe lengths are still reasonably short, it is likely that a
+find operation which misses a key will not load any values outside
+the metadata table.
+
+Another advantage appears if we consider probing multiple entries at
+once, perhaps using the single instruction-multiple data (or
+``vectorised'') instructions provided by the processor used. For
+example, the AMD64 instruction set guarantees the existence of the
+SSE2 instructions and registers, and many high-performance ARM
+processors include the NEON extension. Both provide 128-bit registers,
+which can store 16 packed metadata bytes. It should be noted that
+retrieving many metadata bytes at once may lead to retrieving stale
+metadata more frequently, but we have already described why stale
+metadata should not be a problem. On some machines, particuarly those
+with the AVX2 and AVX512 extensions, it could be possible to use
+larger group sizes (32 and 64, respectively), but Kulukundis found
+that this did not provide any significant performance increase with
+256 bits.\footnote{From a comment on the Cppcon presentation: ``Any
+  reason why you chose 128 bits SSE over 256 bits AVX2, or even
+  AVX512?'' ``We have done tests with 256bit versions and did not find
+  a win over 128.  We have not tried 512''}
+
+\section{Maybe a good idea: Using one ``prime'' bit}
+
+One early idea was to replace the per-entry prime bit with one bit per
+table, which would be tested after a successful update operation. When
+the bit is set, the updater should wait for a new table to be
+inserted, and replicate the update in the new table. This would
+greatly reduce the cache invalidation caused by resizing, and would
+even allow reads to never wait for resizes, but it makes the table
+susceptible to rollbacks.
+
+We must describe why individual prime bits were used first; Click
+sets the prime bit by wrapping values in a \texttt{Prime} object, and
+reading the prime bit requires performing a type check. As such, if one
+thread sets an entry to be primed, then a writer which attempts to CAS
+after observing a cleared bit will still fail. Using one prime bit
+weakens the barrier between writing and resizing; a thread can still
+perform one update, before it must wait for resizing to finish, and
+replicate changes.
+
+\subsection{What happens if we test after updating?}
+
+Suppose thread 1 begins resizing, and copies some entry in the table.
+Another thread, say thread 2, updates that entry, and then notices
+it must replicate the change in the new table. Until the new table is
+installed, the updated entry is visible. Immediately after the new table
+is installed, the old entry is visible, and the entry is said to have
+\emph{rolled back}. The entry will be updated soon after, but the old
+value is still visible for some time.
+
+This, however, could be alleviated by allowing updating threads to
+replicate updates to the new table before it is installed, so that the
+old value is not visible after installing. The table must be large
+enough to hold all newly inserted associations; but this is ensured as
+no more insertions can succeed than there were slots in the old table,
+and the new table is at least as large as the old.
+
+The updates would also have to be applied in order; or threads which
+updated while resizing could just enqueue keys to be copied again into
+the new table, which would ensure the newest value was
+inserted. Allowing such updates does not block the progress of
+copying, as the number of updates in this state is bounded by the
+number of threads which have not yet begun waiting for copying to
+finish. However, the copying thread(s) could not determine when there
+are no more copies to be made, and no threads are in the process of
+writing to the old table, so this solution could not be made to work.
+
+\subsection{Or maybe just simplify the prime test?}
+
+As forementioned, Click uses a wrapper object to implement the prime
+bit; but the value in the prime object is never used except by the
+copier, and that use can be factored out fairly easily (the copier
+thread which succeeds at CASing the prime object in can maintain a
+reference to the value without pulling it again from the prime
+object). We could then replace the prime object with a constant value,
+simplifying the type test into a pointer-equality test.
+
+A quick test suggests pointer tests can be faster:
+
+\begin{verbatim}
+CL-USER> (defstruct a)
+CL-USER> (defvar *foo* (make-a))
+CL-USER> (the-cost-of-nothing:bench (a-p *foo*))
+1.65 nanoseconds
+CL-USER> (defvar *bar* '+bar+)
+CL-USER> (the-cost-of-nothing:bench (eq *bar* '+bar+))
+695.06 picoseconds
+\end{verbatim}
+
+We would also reduce allocation and memory accesses outside the table,
+which would have more pronounced effects when testing in a real hash
+table.
+
+\end{document}

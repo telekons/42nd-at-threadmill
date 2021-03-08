@@ -1,0 +1,6 @@
+Documentation/auto/*
+*.log
+*.out
+*.pdf
+*.fasl
+*~
