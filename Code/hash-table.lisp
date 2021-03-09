@@ -55,7 +55,8 @@ H1 is used to find a starting probe position in the table, and H2 is used as met
        ,@body)))
 
 (defun gethash (key hash-table &optional (default nil))
-  (declare (hash-table hash-table))
+  (declare (hash-table hash-table)
+           (optimize (speed 3)))
   (let* ((storage (hash-table-storage hash-table))
          (metadata (metadata-table storage))
          (hash (funcall (hash-table-hash hash-table) key))
@@ -99,7 +100,8 @@ T,   T   if we successfully claimed this position"
     (setf this-key (key storage position))))
 
 (defun (setf gethash) (new-value key hash-table &optional default)
-  (declare (ignore default))
+  (declare (ignore default)
+           (optimize (speed 3)))
   (let* ((storage (hash-table-storage hash-table))
          (metadata (metadata-table storage))
          (hash (funcall (hash-table-hash hash-table) key))
@@ -128,6 +130,61 @@ T,   T   if we successfully claimed this position"
     (help-copy hash-table)
     (return-from gethash
       (setf (gethash key hash-table) new-value))))
+
+(defun modhash (key hash-table modifier)
+  (declare (function modifier)
+           (optimize (speed 3)))
+  (let* ((storage (hash-table-storage hash-table))
+         (metadata (metadata-table storage))
+         (hash (funcall (hash-table-hash hash-table) key))
+         (test-function (hash-table-test hash-table)))
+    (dx-flet ((test (this-key)
+                (or (eq this-key +empty+)
+                    (eq this-key key)
+                    (funcall test-function this-key key)))
+              (mask (group metadata)
+                (match-union (writable group)
+                             (bytes metadata group)))
+              (consume (this-key position h2)
+                ;;; This wastes a slot if we transition from empty -> empty.
+                ;;; Otherwise it's less of a hassle to implement just this one
+                ;;; function rather than PUT-IF-MATCH, PUT-IF-ABSENT, etc.
+                (multiple-value-bind (ours? new?)
+                    (claim-key storage key this-key position)
+                  (unless ours?
+                    ;; Another thread got this position.
+                    (return-from consume))
+                  (when new?
+                    (atomic-setf (metadata metadata position) h2))
+                  (loop
+                    (let ((value (value storage position)))
+                      (when (eq value +copied+)
+                        (return-from modhash
+                          (modhash key hash-table modifier)))
+                      (multiple-value-bind (new-value new-present?)
+                          (funcall modifier
+                                   value (not (eq value +empty+)))
+                        (cond
+                          (new-present?
+                           ;; We only increment if we just brought this slot
+                           ;; to life.
+                           (when (atomics:cas (value storage position)
+                                              value new-value)
+                             (when new?
+                               (increment-counter (table-count storage)))
+                             (return-from modhash)))
+                          (t
+                           (when (atomics:cas (value storage position)
+                                              value +empty+)
+                             ;; We only decrement if we just killed this slot.
+                             (unless new?
+                               (decrement-counter (table-count storage)))
+                             (return-from modhash))))))))))
+      (call-with-positions storage metadata
+                           hash #'test #'mask #'consume))
+    (help-copy hash-table)
+    (return-from modhash
+      (modhash key hash-table modifier))))
 
 (defun remhash (key hash-table)
   (let* ((storage (hash-table-storage hash-table))
