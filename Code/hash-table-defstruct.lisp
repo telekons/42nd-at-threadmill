@@ -10,7 +10,8 @@
   (storage (error "no storage")
    :type simple-vector))
 
-(defun make-hash-table (&key (test #'eql) (size 64) (hash-function #'sxhash))
+(defun make-hash-table (&key (test #'eql) (size 64) (hash-function #'sxhash)
+                        &allow-other-keys)
   (assert (plusp size))
   (let* ((hash-function (alexandria:ensure-function hash-function))
          (test-function (alexandria:ensure-function test))

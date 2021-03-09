@@ -220,6 +220,20 @@ T,   T   if we successfully claimed this position"
                            hash #'test #'mask #'consume))
     nil))
 
+(defun maphash (function hash-table)
+  (declare (function function))
+  (let* ((storage (hash-table-storage hash-table))
+         (length (length (metadata-table storage))))
+    ;; This procedure is lifted from Cliff Click's table, but it will certainly
+    ;; not include copied entries.
+    (dotimes (n length)
+      (let ((k (key   storage n))
+            (v (value storage n)))
+        (unless (or (eq k +empty+)
+                    (eq v +empty+)
+                    (eq v +copied+))
+          (funcall function k v))))))
+
 (defun hash-table-count (hash-table)
   (counter-value (table-count (hash-table-storage hash-table))))
 (defun hash-table-size (hash-table)
