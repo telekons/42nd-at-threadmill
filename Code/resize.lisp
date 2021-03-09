@@ -2,11 +2,11 @@
 
 (defun too-new-p (hash-table)
   "Was the last resize performed recently?"
-  ;; If the last resize was done in the last 10ms, we probably should grow,
+  ;; If the last resize was done in the last 5ms, we probably should grow,
   ;; regardless of load factor.
   (< (creation-time (hash-table-storage hash-table))
      (- (get-internal-real-time)
-        (* 0.01 internal-time-units-per-second))))
+        (* 0.005 internal-time-units-per-second))))
 
 (defun help-copy (hash-table storage)
   ;; If the storage vector was already swapped out, bail out.
@@ -22,9 +22,6 @@
                old-size))
          (hash-function (hash-table-hash hash-table))
          (own-vector nil))
-    #+(or)
-    (format t "~&Resizing from ~d to ~d"
-            old-size new-size)
     (loop
       (let ((new-vector (new-vector storage)))
         (unless (null new-vector)
@@ -52,8 +49,8 @@
              (return (values old-value t)))))
 
 (defun copy-into (old-storage new-storage hash-function hash-table)
-  (let* ((metadata-table (metadata-table old-storage))
-         (size           (length metadata-table)))
+  (let ((metadata-table (metadata-table new-storage))
+        (size           (length (metadata-table old-storage))))
     (loop
       (multiple-value-bind (start present?)
           (next-segment-to-copy old-storage size)
@@ -61,6 +58,7 @@
           (return))
         (copy-segment old-storage metadata-table new-storage
                       start size hash-function)
+        ;; Bump the copy progress.
         (loop for old-value = (finished-copying old-storage)
               for new-value = (+ old-value +segment-size+)
               until (atomics:cas (finished-copying old-storage)
@@ -72,6 +70,9 @@
                         (return-from copy-into)))))))
 
 (defun copy-segment (old-storage metadata new-storage start size hash-function)
+  #+(or)
+  (format t "~&resizing between ~d and ~d"
+          start (min size (+ start +segment-size+)))
   (loop for position from start
           below (min size (+ start +segment-size+))
         do (let ((k (key old-storage position))
@@ -83,9 +84,11 @@
              (unless (or (eq k +empty+)
                          (eq v +empty+))
                ;; Store it in the new table.
-               (store-copied-value new-storage metadata hash-function k v)))))
+               (store-copied-value new-storage metadata
+                                   (funcall hash-function k)
+                                   k v)))))
 
-(defun store-copied-value (storage metadata hash-function key value)
+(defun store-copied-value (storage metadata hash key value)
   ;; Copying should never store duplicate keys. We exploit this to
   ;; avoid testing keys, instead only copying into new entries.
   (dx-flet ((test (this-key)
@@ -100,7 +103,8 @@
                 (loop until (atomics:cas #1=(value storage position)
                                          #1# value))
                 (increment-counter (table-count storage))
-                (atomic-setf (metadata metadata position) h2))))
-    (call-with-positions storage metadata
-                         (funcall hash-function key)
-                         #'test #'mask #'consume)))
+                (atomic-setf (metadata metadata position) h2)
+                (return-from store-copied-value))))
+    (call-with-positions storage metadata hash
+                         #'test #'mask #'consume)
+    (error "Copy failed - your table is broken. Congratulations!")))

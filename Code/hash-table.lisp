@@ -13,7 +13,7 @@ H1 is used to find a starting probe position in the table, and H2 is used as met
   "A cheap and usually incorrect MOD, which works when DIVISOR is a power of two."
   (logand number (1- divisor)))
 
-(defconstant +probe-limit+ 8
+(defconstant +probe-limit+ 16
   "The maximum number of groups to probe.")
 
 (declaim (inline call-with-positions))
