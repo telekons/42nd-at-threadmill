@@ -129,6 +129,40 @@ T,   T   if we successfully claimed this position"
     (return-from gethash
       (setf (gethash key hash-table) new-value))))
 
+(defun remhash (key hash-table)
+  (let* ((storage (hash-table-storage hash-table))
+         (metadata (metadata-table storage))
+         (hash (funcall (hash-table-hash hash-table) key))
+         (test-function (hash-table-test hash-table)))
+    (dx-flet ((test (this-key)
+                (when (eq this-key +empty+)
+                  (return-from remhash nil))
+                (or (eq this-key key)
+                    (funcall test-function this-key key)))
+              (mask (group metadata)
+                (match-union (writable group)
+                             (bytes metadata group)))
+              (consume (this-key position h2)
+                (declare (ignore this-key h2))
+                (loop for last-value = (value storage position)
+                      do (when (eq last-value +empty+)
+                           ;; It's not really clear if we "succeeded" in
+                           ;; removing an entry that someone else removed,
+                           ;; but I guess only one thread can succeed.
+                           (return-from remhash nil))
+                         (when (eq last-value +copied+)
+                           (help-copy hash-table)
+                           (return-from remhash
+                             (remhash key hash-table)))
+                         (when (atomics:cas (value storage position)
+                                            last-value +empty+)
+                           (return)))
+                (decrement-counter (table-count storage))
+                (return-from remhash t)))
+      (call-with-positions storage metadata
+                           hash #'test #'mask #'consume))
+    nil))
+
 (defun hash-table-count (hash-table)
   (counter-value (table-count (hash-table-storage hash-table))))
 (defun hash-table-size (hash-table)
