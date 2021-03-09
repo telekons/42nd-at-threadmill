@@ -15,7 +15,7 @@
 (defconstant +empty-metadata+ #x80
   "The metadata byte stored for an empty entry.")
 
-(declaim (inline bytes matches-p writable mask-h2))
+(declaim (inline bytes matches-p writable mask-h2 match-union))
 
 (defun mask-h2 (h2)
   "Mask off part of the H2 hash, for use as metadata."
@@ -32,6 +32,9 @@
   "Return matches for metadata bytes we can put new mappings in."
   (bytes +empty-metadata+ group))
 
+(defun match-union (m1 m2)
+  (logior m1 m2))
+
 (declaim (inline call-with-matches))
 (defun call-with-matches (bit-mask continuation)
   (declare (function continuation)
@@ -43,7 +46,7 @@
     (declare (fixnum position))
     ;; We have decided that the bit-mask is non-zero, so there must
     ;; be a 1 in it. First, we find the first 1.
-    (setf position (bsf bit-mask)
+    (setf position (bsf/16 bit-mask)
           bit-mask (ash bit-mask (- position)))
     (loop
       ;; Call the continuation with this position.
@@ -53,7 +56,7 @@
       (when (= 1 bit-mask)
         (return-from call-with-matches))
       ;; Find the next 1.
-      (let ((next-jump (bsf (logand bit-mask #xFFFE))))
+      (let ((next-jump (bsf/16 (logand bit-mask #xFFFE))))
         (setf bit-mask (ash bit-mask (- next-jump))
               position (ldb (byte 62 0) (+ position next-jump)))))))
 
@@ -78,7 +81,7 @@
                                     :initial-element +empty-metadata+)))
     vector))
 
-(declaim (inline metadata-group
+(declaim (inline metadata-group metadata-groups
                  cas-metadata metadata (setf metadata)))
 
 (defun metadata-group (vector position)
@@ -90,11 +93,15 @@ Note that N has a length of a group; on a 8-element-per-group implementation,
            (optimize (speed 3) (safety 0)))
   ;; Why won't SSE:AREF-PI work?
   (sse:mem-ref-pi (sb-sys:vector-sap vector)
-                  (* position +metadata-entries-per-word+)))
+                  (* position +metadata-entries-per-group+)))
+
+(defun metadata-groups (metadata)
+  (floor (length metadata) +metadata-entries-per-group+))
 
 ;; Will we CAS or unconditionally set metadata? As I understand it, whichever
 ;; thread wins the key CAS gets to set the metadata, so it can't change by another
 ;; thread.
+#+(or)
 (defun cas-metadata (vector position old new)
   (= old
      (cas-byte vector position old new)))

@@ -12,11 +12,16 @@
   (:args (value :scs (unsigned-reg)))
   (:arg-types unsigned-num)
   (:results (scan :scs (unsigned-reg)))
-  (:result-types unsigned-byte-64)
-  (:generator 1
+  (:result-types unsigned-num)
+  (:generator 0
               (inst bsf scan value)))
 
 (in-package :threadmill)
 
 (defun bsf (x)
   (bsf x))
+
+(declaim (inline bsf/16))
+(defun bsf/16 (x)
+  (declare ((unsigned-byte 16) x))
+  (sb-ext:truly-the (mod 16) (bsf x)))
