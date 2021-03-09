@@ -73,7 +73,7 @@ H1 is used to find a starting probe position in the table, and H2 is used as met
                 (declare (ignore this-key metadata))
                 (let ((value (value storage position)))
                   (when (eq value +copied+)
-                    (help-copy hash-table)
+                    (help-copy hash-table storage)
                     (return-from gethash (gethash key hash-table)))
                   (when (eq value +empty+)
                     (return-from gethash (values default nil)))
@@ -119,15 +119,21 @@ T,   T   if we successfully claimed this position"
                   (unless ours?
                     ;; Another thread got this position.
                     (return-from consume))
-                  (loop until (atomics:cas #1=(value storage position)
-                                           #1# new-value))
+                  (loop for old-value = (value storage position)
+                        do (when (eq old-value +copied+)
+                             (help-copy hash-table storage)
+                             (return-from gethash
+                               (setf (gethash key hash-table) new-value)))
+                           (when (atomics:cas (value storage position)
+                                              old-value new-value)
+                             (return)))
                   (when new?
                     (increment-counter (table-count storage))
                     (atomic-setf (metadata metadata position) h2))
                   (return-from gethash new-value))))
       (call-with-positions storage metadata
                            hash #'test #'mask #'consume))
-    (help-copy hash-table)
+    (help-copy hash-table storage)
     (return-from gethash
       (setf (gethash key hash-table) new-value))))
 
@@ -182,7 +188,7 @@ T,   T   if we successfully claimed this position"
                              (return-from modhash))))))))))
       (call-with-positions storage metadata
                            hash #'test #'mask #'consume))
-    (help-copy hash-table)
+    (help-copy hash-table storage)
     (return-from modhash
       (modhash key hash-table modifier))))
 
@@ -208,7 +214,7 @@ T,   T   if we successfully claimed this position"
                            ;; but I guess only one thread can succeed.
                            (return-from remhash nil))
                          (when (eq last-value +copied+)
-                           (help-copy hash-table)
+                           (help-copy hash-table storage)
                            (return-from remhash
                              (remhash key hash-table)))
                          (when (atomics:cas (value storage position)
