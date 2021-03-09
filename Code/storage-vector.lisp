@@ -10,7 +10,7 @@
 
 ;;; We define macros so that we can SETF and CAS the position, without
 ;;; having to write setters and (unportable) CAS-ers.
-(defconstant +words-before-values+ 6)
+(defconstant +words-before-values+ 8)
 (macrolet ((def (name offset)
              `(defmacro ,name (storage-vector)
                 `(svref ,storage-vector ,,offset))))
@@ -19,7 +19,8 @@
   (def finished-copying 2)
   (def going-to-copy 3)
   (def table-count 4)
-  (def creation-time 5))
+  (def table-slot-count 5)
+  (def creation-time 6))
 
 (macrolet ((def (name offset)
              `(defmacro ,name (storage-vector n)
@@ -36,6 +37,7 @@
           (finished-copying storage) 0
           (going-to-copy storage)    0
           (table-count storage)      (make-counter)
+          (table-slot-count storage) (make-counter)
           (creation-time storage)    (get-internal-real-time))
     storage))
 

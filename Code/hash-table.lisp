@@ -92,11 +92,13 @@ T,   T   if we successfully claimed this position"
   (declare (optimize (speed 3))
            (vector-index position))
   (loop
-    (unless (or (eq this-key key)
-                (eq this-key +empty+))
+    (when (eq this-key key)
+      (return-from claim-key (values t nil)))
+    (unless (eq this-key +empty+)
       (return-from claim-key (values nil nil)))
-    (when (atomics:cas (key storage position) this-key key)
-      (return-from claim-key (values t (eq this-key +empty+))))
+    (when (atomics:cas (key storage position) +empty+ key)
+      (increment-counter (table-slot-count storage))
+      (return-from claim-key (values t t)))
     (setf this-key (key storage position))))
 
 (defun (setf gethash) (new-value key hash-table &optional default)
@@ -126,9 +128,10 @@ T,   T   if we successfully claimed this position"
                                (setf (gethash key hash-table) new-value)))
                            (when (atomics:cas (value storage position)
                                               old-value new-value)
+                             (when (eq old-value +empty+)
+                               (increment-counter (table-count storage)))
                              (return)))
                   (when new?
-                    (increment-counter (table-count storage))
                     (atomic-setf (metadata metadata position) h2))
                   (return-from gethash new-value))))
       (call-with-positions storage metadata
@@ -172,18 +175,18 @@ T,   T   if we successfully claimed this position"
                                    value (not (eq value +empty+)))
                         (cond
                           (new-present?
-                           ;; We only increment if we just brought this slot
-                           ;; to life.
                            (when (atomics:cas (value storage position)
                                               value new-value)
-                             (when new?
+                             ;; We only increment if we just brought this slot
+                             ;; to life.
+                             (when (eq value +empty+)
                                (increment-counter (table-count storage)))
                              (return-from modhash)))
                           (t
                            (when (atomics:cas (value storage position)
                                               value +empty+)
-                             ;; We only decrement if we just killed this slot.
-                             (unless new?
+                             ;; We only decrement if the slot was live before.
+                             (unless (eq value +empty+)
                                (decrement-counter (table-count storage)))
                              (return-from modhash))))))))))
       (call-with-positions storage metadata
@@ -209,9 +212,8 @@ T,   T   if we successfully claimed this position"
                 (declare (ignore this-key h2))
                 (loop for last-value = (value storage position)
                       do (when (eq last-value +empty+)
-                           ;; It's not really clear if we "succeeded" in
-                           ;; removing an entry that someone else removed,
-                           ;; but I guess only one thread can succeed.
+                           ;; We didn't succeed if someone else removed the
+                           ;; entry first.
                            (return-from remhash nil))
                          (when (eq last-value +copied+)
                            (help-copy hash-table storage)
