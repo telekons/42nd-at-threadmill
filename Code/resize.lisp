@@ -101,7 +101,8 @@
               (writable group))
             (consume (this-key position h2)
               (declare (ignore this-key))
-              (when (claim-key storage key +empty+ position)
+              (when (claim-key storage key +empty+ position
+                               (constantly nil))
                 (loop until (atomics:cas #1=(value storage position)
                                          #1# value))
                 (increment-counter (table-count storage))

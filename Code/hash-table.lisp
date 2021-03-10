@@ -84,7 +84,7 @@ H1 is used to find a starting probe position in the table, and H2 is used as met
       (values default nil))))
 
 (declaim (inline claim-key))
-(defun claim-key (storage key this-key position)
+(defun claim-key (storage key this-key position test)
   "Attempt to claim a position in the table, returning values:
 NIL, NIL if another thread claimed it for another key first
 T,   NIL if this position already was claimed with this key
@@ -92,7 +92,9 @@ T,   T   if we successfully claimed this position"
   (declare (optimize (speed 3))
            (vector-index position))
   (loop
-    (when (eq this-key key)
+    (when (or (eq this-key key)
+              (and (not (eq this-key +empty+))
+                   (funcall test this-key key)))
       (return-from claim-key (values t nil)))
     (unless (eq this-key +empty+)
       (return-from claim-key (values nil nil)))
@@ -117,7 +119,8 @@ T,   T   if we successfully claimed this position"
                              (bytes metadata group)))
               (consume (this-key position h2)
                 (multiple-value-bind (ours? new?)
-                    (claim-key storage key this-key position)
+                    (claim-key storage key this-key position
+                               test-function)
                   (unless ours?
                     ;; Another thread got this position.
                     (return-from consume))
@@ -159,7 +162,8 @@ T,   T   if we successfully claimed this position"
                 ;;; Otherwise it's less of a hassle to implement just this one
                 ;;; function rather than PUT-IF-MATCH, PUT-IF-ABSENT, etc.
                 (multiple-value-bind (ours? new?)
-                    (claim-key storage key this-key position)
+                    (claim-key storage key this-key position
+                               test-function)
                   (unless ours?
                     ;; Another thread got this position.
                     (return-from consume))
