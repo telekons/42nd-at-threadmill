@@ -233,6 +233,9 @@ T,   T   if we successfully claimed this position"
 
 (defun maphash (function hash-table)
   (declare (function function))
+  (loop for storage = (hash-table-storage hash-table)
+        until (null (new-vector storage))
+        do (help-copy hash-table storage))
   (let* ((storage (hash-table-storage hash-table))
          (length (length (metadata-table storage))))
     ;; This procedure is lifted from Cliff Click's table, but it will certainly
