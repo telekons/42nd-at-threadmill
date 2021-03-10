@@ -22,18 +22,17 @@
                       0.75))
                (* old-size 2)
                old-size))
-         (hash-function (hash-table-hash hash-table))
          (own-vector nil))
     (loop
       (let ((new-vector (new-vector storage)))
         (unless (null new-vector)
           (return-from help-copy
-            (copy-into storage new-vector hash-function hash-table)))
+            (copy-into storage new-vector hash-table)))
         (when (null own-vector)
           (setf own-vector (make-storage-vector new-size)))
         (when (atomics:cas (new-vector storage) nil own-vector)
           (return-from help-copy
-            (copy-into storage own-vector hash-function hash-table)))))))
+            (copy-into storage own-vector hash-table)))))))
 
 ;;; Copying is done in "segments". Each thread repeatedly claims
 ;;; segments of the storage vector to copy into the new vector, until there
@@ -50,15 +49,17 @@
                               old-value new-value)
              (return (values old-value t)))))
 
-(defun copy-into (old-storage new-storage hash-function hash-table)
+(defun copy-into (old-storage new-storage hash-table)
   (let ((metadata-table (metadata-table new-storage))
+        (hash-function  (hash-table-hash hash-table))
         (size           (length (metadata-table old-storage))))
     (loop
       (multiple-value-bind (start present?)
           (next-segment-to-copy old-storage size)
         (unless present?
           (return))
-        (copy-segment old-storage metadata-table new-storage
+        (copy-segment hash-table
+                      old-storage metadata-table new-storage
                       start size hash-function)
         ;; Bump the copy progress.
         (loop for old-value = (finished-copying old-storage)
@@ -66,15 +67,17 @@
               until (atomics:cas (finished-copying old-storage)
                                  old-value (+ old-value +segment-size+))
               ;; When we copied the last segment, install the new table.
+              ;; Note that if one thread leaves, in order to start work on a
+              ;; new table, then this won't complete; we want that, so that
+              ;; only the table which everyone succeeds with will be installed.
               finally (when (>= new-value size)
-                        (atomic-setf (hash-table-storage hash-table)
-                                     new-storage)
+                        (when (null (new-vector new-storage))
+                          (atomic-setf (hash-table-storage hash-table)
+                                       new-storage))
                         (return-from copy-into)))))))
 
-(defun copy-segment (old-storage metadata new-storage start size hash-function)
-  #+(or)
-  (format t "~&resizing between ~d and ~d"
-          start (min size (+ start +segment-size+)))
+(defun copy-segment (hash-table old-storage metadata new-storage
+                     start size hash-function)
   (loop for position from start
           below (min size (+ start +segment-size+))
         do (let ((k (key old-storage position))
@@ -86,28 +89,51 @@
              (unless (or (eq k +empty+)
                          (eq v +empty+))
                ;; Store it in the new table.
-               (store-copied-value new-storage metadata
+               (store-copied-value hash-table
+                                   new-storage metadata
                                    (funcall hash-function k)
-                                   k v)))))
+                                   k v size)))))
 
-(defun store-copied-value (storage metadata hash key value)
+(defun store-copied-value (hash-table storage metadata hash key value size)
+  "Attempt to copy a key and value."
   ;; Copying should never store duplicate keys. We exploit this to
   ;; avoid testing keys, instead only copying into new entries.
   (dx-flet ((test (this-key)
               (declare (ignore this-key))
               t)
             (mask (group metadata)
-              (declare (ignore metadata))
-              (writable group))
+               (declare (ignore metadata))
+               (writable group))
             (consume (this-key position h2)
               (declare (ignore this-key))
               (when (claim-key storage key +empty+ position
                                (constantly nil))
-                (loop until (atomics:cas #1=(value storage position)
-                                         #1# value))
+                (loop for old-value = (value storage position)
+                      do (when (eq old-value +copied+)
+                           (return-from store-copied-value
+                             (recursive-copy hash-table storage
+                                             hash key value size)))
+                         (when (atomics:cas (value storage position)
+                                            old-value value)
+                           (return)))
                 (increment-counter (table-count storage))
                 (atomic-setf (metadata metadata position) h2)
                 (return-from store-copied-value))))
     (call-with-positions storage metadata hash
                          #'test #'mask #'consume)
-    (error "Copy failed - your table is broken. Congratulations!")))
+    (recursive-copy hash-table storage hash key value size)))
+
+(defun recursive-copy (hash-table storage hash key value size)
+  (flet ((continuation (new-storage)
+           (let ((new-metadata (metadata-table new-storage)))
+             (store-copied-value hash-table new-storage new-metadata
+                                 hash key value (length new-metadata))
+             (copy-into storage new-storage hash-table))))
+    (loop
+      (unless (null (new-vector storage))
+        (return (continuation (new-vector storage))))
+      (let ((new-storage (make-storage-vector (* 2 size))))
+        (when (atomics:cas (new-vector storage) nil new-storage)
+          #+(or)
+          (warn "Failed to copy; doing a recursive copy.")
+          (return (continuation new-storage)))))))
