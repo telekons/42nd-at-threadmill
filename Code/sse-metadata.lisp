@@ -30,16 +30,18 @@
 
 (defun writable (group)
   "Return matches for metadata bytes we can put new mappings in."
-  (bytes +empty-metadata+ group))
+  ;; movemask tests the high bit of each byte, and we want to test the
+  ;; high bit, so we have nothing else to do. Magic!
+  (sse:movemask-pi8 group))
 
 (defun match-union (m1 m2)
   (logior m1 m2))
 
-(declaim (inline call-with-matches))
+(declaim (inline call-with-matches matches-p))
 (defun call-with-matches (bit-mask continuation)
   (declare (function continuation)
-           ((unsigned-byte 16) bit-mask)
-           (optimize (speed 3) (safety 0)))
+           (optimize (speed 3) (safety 0))
+           ((unsigned-byte 16) bit-mask))
   (loop until (zerop bit-mask)
         do (funcall continuation (bsf/16 bit-mask))
            (setf bit-mask (logand bit-mask (1- bit-mask)))))
@@ -70,25 +72,15 @@
 
 (defun metadata-group (vector position)
   "Retrieve the Nth metadata group from a vector. 
-Note that N has a length of a group; on a 8-element-per-group implementation, 
-(metadata-group V 1) retrieves the 8th through 15th metadata bytes of V."
+Note that N has a length of an element."
   (declare (metadata-vector vector)
-           (metadata-index position)
+           (vector-index position)
            (optimize (speed 3) (safety 0)))
   ;; Why won't SSE:AREF-PI work?
-  (sse:mem-ref-pi (sb-sys:vector-sap vector)
-                  (* position +metadata-entries-per-group+)))
+  (sse:mem-ref-api (sb-sys:vector-sap vector) position))
 
 (defun metadata-groups (metadata)
   (floor (length metadata) +metadata-entries-per-group+))
-
-;; Will we CAS or unconditionally set metadata? As I understand it, whichever
-;; thread wins the key CAS gets to set the metadata, so it can't change by another
-;; thread.
-#+(or)
-(defun cas-metadata (vector position old new)
-  (= old
-     (cas-byte vector position old new)))
 
 (defun metadata (vector position)
   (declare (vector-index position))
@@ -96,7 +88,7 @@ Note that N has a length of a group; on a 8-element-per-group implementation,
 
 (defun (setf metadata) (new-value vector position)
   (declare (vector-index position))
-  (setf (aref vector position)  new-value))
+  (setf (aref vector position) new-value))
 
 (defmacro atomic-setf (place value)
   `(prog1
