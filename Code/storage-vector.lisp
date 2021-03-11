@@ -14,13 +14,18 @@
 (macrolet ((def (name offset)
              `(defmacro ,name (storage-vector)
                 `(svref ,storage-vector ,,offset))))
-  (def metadata-table 0)
+  (def %metadata-table 0)
   (def new-vector 1)
   (def finished-copying 2)
   (def going-to-copy 3)
   (def table-count 4)
   (def table-slot-count 5)
   (def creation-time 6))
+
+(declaim (inline metadata-table))
+(defun metadata-table (storage)
+  (sb-ext:truly-the metadata-vector
+                    (%metadata-table storage)))
 
 (macrolet ((def (name offset)
              `(defmacro ,name (storage-vector n)
@@ -32,7 +37,7 @@
 (defun make-storage-vector (size)
   (let ((storage (make-array (+ (* size 2) +words-before-values+)
                              :initial-element +empty+)))
-    (setf (metadata-table storage)   (make-metadata-vector size)
+    (setf (%metadata-table storage)  (make-metadata-vector size)
           (new-vector storage)       nil
           (finished-copying storage) 0
           (going-to-copy storage)    0

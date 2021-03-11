@@ -98,27 +98,27 @@
   "Attempt to copy a key and value."
   ;; Copying should never store duplicate keys. We exploit this to
   ;; avoid testing keys, instead only copying into new entries.
-  (dx-flet ((test (this-key)
-              (declare (ignore this-key))
-              t)
-            (mask (group metadata)
-               (declare (ignore metadata))
-               (writable group))
-            (consume (this-key position h2)
-              (declare (ignore this-key))
-              (when (claim-key storage key +empty+ position
-                               (constantly nil))
-                (loop for old-value = (value storage position)
-                      do (when (eq old-value +copied+)
-                           (return-from store-copied-value
-                             (recursive-copy hash-table storage
-                                             hash key value size)))
-                         (when (atomics:cas (value storage position)
-                                            old-value value)
-                           (return)))
-                (increment-counter (table-count storage))
-                (atomic-setf (metadata metadata position) h2)
-                (return-from store-copied-value))))
+  (dx-labels ((test (this-key)
+                (declare (ignore this-key))
+                t)
+              (mask (group metadata)
+                (declare (ignore metadata))
+                (writable group))
+              (consume (this-key position h2)
+                (declare (ignore this-key))
+                (when (claim-key storage key +empty+ position
+                                 (constantly nil))
+                  (loop for old-value = (value storage position)
+                        do (when (eq old-value +copied+)
+                             (return-from store-copied-value
+                               (recursive-copy hash-table storage
+                                               hash key value size)))
+                           (when (atomics:cas (value storage position)
+                                              old-value value)
+                             (return)))
+                  (increment-counter (table-count storage))
+                  (atomic-setf (metadata metadata position) h2)
+                  (return-from store-copied-value))))
     (call-with-positions storage metadata hash
                          #'test #'mask #'consume)
     (recursive-copy hash-table storage hash key value size)))

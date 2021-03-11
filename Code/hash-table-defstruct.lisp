@@ -2,7 +2,7 @@
 
 (defstruct (hash-table (:constructor %make-hash-table))
   (hash (error "no hash function")
-   :type function
+   :type (function * fixnum)
    :read-only t)
   (test (error "no test function")
    :type function

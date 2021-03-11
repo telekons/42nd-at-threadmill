@@ -13,7 +13,7 @@ H1 is used to find a starting probe position in the table, and H2 is used as met
   "A cheap and usually incorrect MOD, which works when DIVISOR is a power of two."
   (logand number (1- divisor)))
 
-(defconstant +probe-limit+ 16
+(defconstant +probe-limit+ 8
   "The maximum number of groups to probe.")
 
 (declaim (inline call-with-positions))
@@ -46,9 +46,9 @@ H1 is used to find a starting probe position in the table, and H2 is used as met
         (when (= probed probe-limit)
           (return-from call-with-positions))))))
 
-(defmacro dx-flet (definitions &body body)
+(defmacro dx-labels (definitions &body body)
   (let ((names (mapcar #'first definitions)))
-    `(flet ,definitions
+    `(labels ,definitions
        (declare (inline ,@names)
                 (sb-int:truly-dynamic-extent
                  ,@(loop for name in names collect `#',name)))
@@ -61,24 +61,24 @@ H1 is used to find a starting probe position in the table, and H2 is used as met
          (metadata (metadata-table storage))
          (hash (funcall (hash-table-hash hash-table) key))
          (test-function (hash-table-test hash-table)))
-    (dx-flet ((test (this-key)
-                (when (eq this-key +empty+)
-                  (return-from gethash (values default nil)))
-                (or (eq this-key key)
-                    (funcall test-function this-key key)))
-              (mask (group metadata)
-                (match-union (writable group)
-                             (bytes metadata group)))
-              (consume (this-key position metadata)
-                (declare (ignore this-key metadata))
-                (let ((value (value storage position)))
-                  (when (eq value +copied+)
-                    (help-copy hash-table storage)
-                    (return-from gethash (gethash key hash-table)))
-                  (when (eq value +empty+)
+    (dx-labels ((test (this-key)
+                  (when (eq this-key +empty+)
                     (return-from gethash (values default nil)))
-                  (return-from gethash
-                    (values value t)))))
+                  (or (eq this-key key)
+                      (funcall test-function this-key key)))
+                (mask (group metadata)
+                  (match-union (writable group)
+                               (bytes metadata group)))
+                (consume (this-key position metadata)
+                  (declare (ignore this-key metadata))
+                  (let ((value (value storage position)))
+                    (when (eq value +copied+)
+                      (help-copy hash-table storage)
+                      (return-from gethash (gethash key hash-table)))
+                    (when (eq value +empty+)
+                      (return-from gethash (values default nil)))
+                    (return-from gethash
+                      (values value t)))))
       (call-with-positions storage metadata
                            hash #'test #'mask #'consume)
       (values default nil))))
@@ -89,8 +89,9 @@ H1 is used to find a starting probe position in the table, and H2 is used as met
 NIL, NIL if another thread claimed it for another key first
 T,   NIL if this position already was claimed with this key
 T,   T   if we successfully claimed this position"
-  (declare (optimize (speed 3))
-           (vector-index position))
+  (declare (optimize (speed 3) (safety 0))
+           (vector-index position)
+           (function test))
   (loop
     (unless (eq this-key +empty+)
       (when (or (eq this-key key)
@@ -109,38 +110,38 @@ T,   T   if we successfully claimed this position"
          (metadata (metadata-table storage))
          (hash (funcall (hash-table-hash hash-table) key))
          (test-function (hash-table-test hash-table)))
-    (dx-flet ((test (this-key)
-                (or (eq this-key +empty+)
-                    (eq this-key key)
-                    (funcall test-function this-key key)))
-              (mask (group metadata)
-                (match-union (writable group)
-                             (bytes metadata group)))
-              (consume (this-key position h2)
-                (multiple-value-bind (ours? new?)
-                    (claim-key storage key this-key position
-                               test-function)
-                  (unless ours?
-                    ;; Another thread got this position.
-                    (return-from consume))
-                  (loop for old-value = (value storage position)
-                        do (when (eq old-value +copied+)
-                             (help-copy hash-table storage)
-                             (return-from gethash
-                               (setf (gethash key hash-table) new-value)))
-                           (when (atomics:cas (value storage position)
-                                              old-value new-value)
-                             (when (eq old-value +empty+)
-                               (increment-counter (table-count storage)))
-                             (return)))
-                  (when new?
-                    (atomic-setf (metadata metadata position) h2))
-                  (return-from gethash new-value))))
+    (dx-labels ((lose-and-resize ()
+                  (help-copy hash-table storage)
+                  (return-from gethash
+                    (setf (gethash key hash-table) new-value)))
+                (test (this-key)
+                  (or (eq this-key +empty+)
+                      (eq this-key key)
+                      (funcall test-function this-key key)))
+                (mask (group metadata)
+                  (match-union (writable group)
+                               (bytes metadata group)))
+                (consume (this-key position h2)
+                  (multiple-value-bind (ours? new?)
+                      (claim-key storage key this-key position
+                                 test-function)
+                    (unless ours?
+                      ;; Another thread got this position.
+                      (return-from consume))
+                    (loop for old-value = (value storage position)
+                          do (when (eq old-value +copied+)
+                               (lose-and-resize))
+                             (when (atomics:cas (value storage position)
+                                                old-value new-value)
+                               (when (eq old-value +empty+)
+                                 (increment-counter (table-count storage)))
+                               (return)))
+                    (when new?
+                      (atomic-setf (metadata metadata position) h2))
+                    (return-from gethash new-value))))
       (call-with-positions storage metadata
-                           hash #'test #'mask #'consume))
-    (help-copy hash-table storage)
-    (return-from gethash
-      (setf (gethash key hash-table) new-value))))
+                           hash #'test #'mask #'consume)
+      (lose-and-resize))))
 
 (defun modhash (key hash-table modifier)
   (declare (function modifier)
@@ -149,49 +150,49 @@ T,   T   if we successfully claimed this position"
          (metadata (metadata-table storage))
          (hash (funcall (hash-table-hash hash-table) key))
          (test-function (hash-table-test hash-table)))
-    (dx-flet ((test (this-key)
-                (or (eq this-key +empty+)
-                    (eq this-key key)
-                    (funcall test-function this-key key)))
-              (mask (group metadata)
-                (match-union (writable group)
-                             (bytes metadata group)))
-              (consume (this-key position h2)
+    (dx-labels ((test (this-key)
+                  (or (eq this-key +empty+)
+                      (eq this-key key)
+                      (funcall test-function this-key key)))
+                (mask (group metadata)
+                  (match-union (writable group)
+                               (bytes metadata group)))
+                (consume (this-key position h2)
                 ;;; This wastes a slot if we transition from empty -> empty.
                 ;;; Otherwise it's less of a hassle to implement just this one
                 ;;; function rather than PUT-IF-MATCH, PUT-IF-ABSENT, etc.
-                (multiple-value-bind (ours? new?)
-                    (claim-key storage key this-key position
-                               test-function)
-                  (unless ours?
-                    ;; Another thread got this position.
-                    (return-from consume))
-                  (when new?
-                    (atomic-setf (metadata metadata position) h2))
-                  (loop
-                    (let ((value (value storage position)))
-                      (when (eq value +copied+)
-                        (return-from modhash
-                          (modhash key hash-table modifier)))
-                      (multiple-value-bind (new-value new-present?)
-                          (funcall modifier
-                                   value (not (eq value +empty+)))
-                        (cond
-                          (new-present?
-                           (when (atomics:cas (value storage position)
-                                              value new-value)
-                             ;; We only increment if we just brought this slot
-                             ;; to life.
-                             (when (eq value +empty+)
-                               (increment-counter (table-count storage)))
-                             (return-from modhash)))
-                          (t
-                           (when (atomics:cas (value storage position)
-                                              value +empty+)
-                             ;; We only decrement if the slot was live before.
-                             (unless (eq value +empty+)
-                               (decrement-counter (table-count storage)))
-                             (return-from modhash))))))))))
+                  (multiple-value-bind (ours? new?)
+                      (claim-key storage key this-key position
+                                 test-function)
+                    (unless ours?
+                      ;; Another thread got this position.
+                      (return-from consume))
+                    (when new?
+                      (atomic-setf (metadata metadata position) h2))
+                    (loop
+                      (let ((value (value storage position)))
+                        (when (eq value +copied+)
+                          (return-from modhash
+                            (modhash key hash-table modifier)))
+                        (multiple-value-bind (new-value new-present?)
+                            (funcall modifier
+                                     value (not (eq value +empty+)))
+                          (cond
+                            (new-present?
+                             (when (atomics:cas (value storage position)
+                                                value new-value)
+                               ;; We only increment if we just brought this slot
+                               ;; to life.
+                               (when (eq value +empty+)
+                                 (increment-counter (table-count storage)))
+                               (return-from modhash)))
+                            (t
+                             (when (atomics:cas (value storage position)
+                                                value +empty+)
+                               ;; We only decrement if the slot was live before.
+                               (unless (eq value +empty+)
+                                 (decrement-counter (table-count storage)))
+                               (return-from modhash))))))))))
       (call-with-positions storage metadata
                            hash #'test #'mask #'consume))
     (help-copy hash-table storage)
@@ -203,30 +204,30 @@ T,   T   if we successfully claimed this position"
          (metadata (metadata-table storage))
          (hash (funcall (hash-table-hash hash-table) key))
          (test-function (hash-table-test hash-table)))
-    (dx-flet ((test (this-key)
-                (when (eq this-key +empty+)
-                  (return-from remhash nil))
-                (or (eq this-key key)
-                    (funcall test-function this-key key)))
-              (mask (group metadata)
-                (match-union (writable group)
-                             (bytes metadata group)))
-              (consume (this-key position h2)
-                (declare (ignore this-key h2))
-                (loop for last-value = (value storage position)
-                      do (when (eq last-value +empty+)
-                           ;; We didn't succeed if someone else removed the
-                           ;; entry first.
-                           (return-from remhash nil))
-                         (when (eq last-value +copied+)
-                           (help-copy hash-table storage)
-                           (return-from remhash
-                             (remhash key hash-table)))
-                         (when (atomics:cas (value storage position)
-                                            last-value +empty+)
-                           (return)))
-                (decrement-counter (table-count storage))
-                (return-from remhash t)))
+    (dx-labels ((test (this-key)
+                  (when (eq this-key +empty+)
+                    (return-from remhash nil))
+                  (or (eq this-key key)
+                      (funcall test-function this-key key)))
+                (mask (group metadata)
+                  (match-union (writable group)
+                               (bytes metadata group)))
+                (consume (this-key position h2)
+                  (declare (ignore this-key h2))
+                  (loop for last-value = (value storage position)
+                        do (when (eq last-value +empty+)
+                             ;; We didn't succeed if someone else removed the
+                             ;; entry first.
+                             (return-from remhash nil))
+                           (when (eq last-value +copied+)
+                             (help-copy hash-table storage)
+                             (return-from remhash
+                               (remhash key hash-table)))
+                           (when (atomics:cas (value storage position)
+                                              last-value +empty+)
+                             (return)))
+                  (decrement-counter (table-count storage))
+                  (return-from remhash t)))
       (call-with-positions storage metadata
                            hash #'test #'mask #'consume))
     nil))
