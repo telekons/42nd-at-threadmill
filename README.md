@@ -37,3 +37,12 @@ anything.
 As Click requires us to pin keys to entries, we don't ever use tombstone
 metadata. The metadata for a dead entry remains in the metadata table,
 as we need to be able to find the right key entry to reuse quickly.
+
+## Previous work
+
+This concurrent hash table is based off the
+[NonBlockingHashMap](https://github.com/boundary/high-scale-lib/blob/master/src/main/java/org/cliffc/high_scale_lib/NonBlockingHashMap.java),
+and its Common Lisp port in
+[Luckless](https://github.com/Shinmera/luckless). It is also based off the
+[linear probing hash table implementation in SICL](https://github.com/robert-strandh/SICL/tree/master/Code/Hash-tables/Linear-probing),
+as well as [its SIMD fork](https://github.com/no-defun-allowed/simd-sicl-hash-table).
