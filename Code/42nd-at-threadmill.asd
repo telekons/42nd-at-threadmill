@@ -3,6 +3,7 @@
   :serial t
   :components ((:file "package")
                (:file "bsf")
+               (:file "cas-bytes")
                (:file "counter")
                (:file "sse-metadata")
                (:file "storage-vector")
