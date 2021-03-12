@@ -62,7 +62,7 @@
 
 (defun make-metadata-vector (size)
   "Create a metadata vector for a hash table of a given size, with all elements initialized to +EMPTY-METADATA+."
-  (let ((vector (sse:make-sse-array (+ size +metadata-entries-per-group+)
+  (let ((vector (sse:make-sse-array size
                                     :element-type '(unsigned-byte 8)
                                     :initial-element +empty-metadata+)))
     vector))
@@ -77,16 +77,10 @@ Note that N has a length of an element."
            (vector-index position)
            (optimize (speed 3) (safety 0)))
   ;; Why won't SSE:AREF-PI work?
-  (sse:mem-ref-pi (sb-sys:vector-sap vector) position))
+  (sse:mem-ref-api (sb-sys:vector-sap vector) position))
 
 (defun metadata-groups (metadata)
   (floor (length metadata) +metadata-entries-per-group+))
-
-(defun cas-metadata (vector position old new)
-  (declare (metadata-vector vector)
-           (vector-index position))
-  (= old
-     (cas-byte vector position old new)))
 
 (defun metadata (vector position)
   (declare (vector-index position))

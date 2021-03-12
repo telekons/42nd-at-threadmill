@@ -9,7 +9,7 @@
     '(optimize (speed 3) (sb-c::insert-array-bounds-checks 0))
   :test #'equal)
 
-(declaim (inline split-hash cheap-mod masks))
+(declaim (inline split-hash cheap-mod))
 (defun split-hash (hash)
   "Split a hash into two parts (called H1 and H2).
 H1 is used to find a starting probe position in the table, and H2 is used as metadata for fast probing."
@@ -18,11 +18,6 @@ H1 is used to find a starting probe position in the table, and H2 is used as met
 (defun cheap-mod (number divisor)
   "A cheap and usually incorrect MOD, which works when DIVISOR is a power of two."
   (logand number (1- divisor)))
-(defun masks (bit)
-  "Generate bit masks above and below a given bit."
-  (let ((b1 (1- (ash 1 bit))))
-    (values b1
-            (ldb (byte +metadata-entries-per-group+ 0) (lognot b1)))))
 
 (defconstant +probe-limit+ 8
   "The maximum number of groups to probe.")
@@ -39,19 +34,18 @@ H1 is used to find a starting probe position in the table, and H2 is used as met
   (multiple-value-bind (h1 h2)
       (split-hash hash)
     (let* ((probed 0)
-           (length         (storage-size storage))
+           (length         (length metadata))
            (groups         (floor length +metadata-entries-per-group+))
            (probe-limit    (min length +probe-limit+))
-           (probe-position (cheap-mod h1 length)))
+           (probe-position (* +metadata-entries-per-group+
+                              (cheap-mod h1 groups))))
       (declare (vector-index probe-position)
                (fixnum probed))
       (loop
-        (let* ((group (metadata-group metadata probe-position))
-               (metadata (mask-h2 h2))
-               (bit-set (funcall mask-generator group metadata)))
-          (do-matches (entry-offset bit-set)
-            (let* ((entry-position
-                     (cheap-mod (+ entry-offset probe-position) length))
+        (let ((group (metadata-group metadata probe-position))
+              (metadata (mask-h2 h2)))
+          (do-matches (entry-offset (funcall mask-generator group metadata))
+            (let* ((entry-position (+ entry-offset probe-position))
                    (this-key (key storage entry-position)))
               (when (funcall test this-key)
                 (funcall continuation this-key entry-position metadata))))
@@ -79,9 +73,8 @@ H1 is used to find a starting probe position in the table, and H2 is used as met
          (hash (funcall (hash-table-hash hash-table) key))
          (test-function (hash-table-test hash-table)))
     (dx-labels ((test (this-key)
-                  (and (not (eq this-key +empty+))
-                       (or (eq this-key key)
-                           (funcall test-function this-key key))))
+                  (or (eq this-key key)
+                      (funcall test-function this-key key)))
                 (mask (group metadata)
                   (bytes metadata group))
                 (consume (this-key position h2)
@@ -95,42 +88,34 @@ H1 is used to find a starting probe position in the table, and H2 is used as met
                     (return-from gethash
                       (values value t))))
                 (test-empty (group base-position)
-                  (declare (ignore base-position))
-                  (when (matches-p (writable group))
-                    (return-from gethash (values default nil)))))
+                   ;; We only fill groups from start to end, so we can
+                   ;; just test the last entry to figure if
+                   ;; any were empty. We can't just test metadata, because
+                   ;; it can be out of date; usually this is fine, but when
+                   ;; testing if our key may be in another group, this is
+                   ;; certainly not fine.
+                   (declare (ignore group))
+                   (let ((last-in-group
+                           (+ base-position -1 +metadata-entries-per-group+)))
+                     (when (and (= +empty-metadata+
+                                   (metadata metadata
+                                             last-in-group))
+                                (eq +empty+ (key storage last-in-group)))
+                       (return-from gethash (values default nil))))))
       (call-with-positions storage metadata
                            hash #'test #'mask #'consume
                            :after-group #'test-empty)
       (values default nil))))
 
 (declaim (inline claim-key))
-(defun claim-key (storage metadata key this-key position h2 test)
+(defun claim-key (storage key this-key position test)
   "Attempt to claim a position in the table, returning values:
 NIL, NIL if another thread claimed it for another key first
 T,   NIL if this position already was claimed with this key
 T,   T   if we successfully claimed this position"
   (declare (optimize (speed 3) (safety 0))
            (vector-index position)
-           (simple-vector storage)
-           (metadata-vector metadata)
-           ((unsigned-byte 8) h2)
            (function test))
-  ;; 1. Claim the key in metadata.
-  (loop for value = (metadata metadata position)
-        do (cond
-             ((= value h2)
-              (return))
-             ((= value +empty-metadata+)
-              (when (cas-metadata metadata position
-                                  +empty-metadata+ h2)
-                (when (< position +metadata-entries-per-group+)
-                  (atomic-setf (metadata metadata
-                                         (+ position (storage-size storage)))
-                               h2))
-                (return)))
-             (t
-              (return-from claim-key (values nil nil)))))
-  ;; 2. Claim the key in storage.
   (loop
     (unless (eq this-key +empty+)
       (when (or (eq this-key key)
@@ -162,9 +147,8 @@ T,   T   if we successfully claimed this position"
                                (bytes metadata group)))
                 (consume (this-key position h2)
                   (multiple-value-bind (ours? new?)
-                      (claim-key storage metadata
-                                 key this-key position
-                                 h2 test-function)
+                      (claim-key storage key this-key position
+                                 test-function)
                     (unless ours?
                       ;; Another thread got this position.
                       (return-from consume))
@@ -176,6 +160,8 @@ T,   T   if we successfully claimed this position"
                                (when (eq old-value +empty+)
                                  (increment-counter (table-count storage)))
                                (return)))
+                    (when new?
+                      (atomic-setf (metadata metadata position) h2))
                     (return-from gethash new-value))))
       (call-with-positions storage metadata
                            hash #'test #'mask #'consume)
@@ -200,12 +186,13 @@ T,   T   if we successfully claimed this position"
                 ;;; Otherwise it's less of a hassle to implement just this one
                 ;;; function rather than PUT-IF-MATCH, PUT-IF-ABSENT, etc.
                   (multiple-value-bind (ours? new?)
-                      (claim-key storage metadata
-                                 key this-key position
-                                 h2 test-function)
+                      (claim-key storage key this-key position
+                                 test-function)
                     (unless ours?
                       ;; Another thread got this position.
                       (return-from consume))
+                    (when new?
+                      (atomic-setf (metadata metadata position) h2))
                     (loop
                       (let ((value (value storage position)))
                         (when (eq value +copied+)
@@ -286,7 +273,7 @@ T,   T   if we successfully claimed this position"
         until (null (new-vector storage))
         do (help-copy hash-table storage))
   (let* ((storage (hash-table-storage hash-table))
-         (length (storage-size storage)))
+         (length (length (metadata-table storage))))
     ;; This procedure is lifted from Cliff Click's table, but it will certainly
     ;; not include copied entries.
     (dotimes (n length)
@@ -300,4 +287,4 @@ T,   T   if we successfully claimed this position"
 (defun hash-table-count (hash-table)
   (counter-value (table-count (hash-table-storage hash-table))))
 (defun hash-table-size (hash-table)
-  (storage-size (hash-table-storage hash-table)))
+  (length (metadata-table (hash-table-storage hash-table))))

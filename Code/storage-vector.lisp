@@ -20,15 +20,12 @@
   (def going-to-copy 3)
   (def table-count 4)
   (def table-slot-count 5)
-  (def creation-time 6)
-  (def %size 7))
+  (def creation-time 6))
 
-(declaim (inline metadata-table storage-size))
+(declaim (inline metadata-table))
 (defun metadata-table (storage)
   (sb-ext:truly-the metadata-vector
                     (%metadata-table storage)))
-(defun storage-size (storage)
-  (sb-ext:truly-the fixnum (%size storage)))
 
 (macrolet ((def (name offset)
              `(defmacro ,name (storage-vector n)
@@ -46,8 +43,7 @@
           (going-to-copy storage)    0
           (table-count storage)      (make-counter)
           (table-slot-count storage) (make-counter)
-          (creation-time storage)    (get-internal-real-time)
-          (%size storage)            size)
+          (creation-time storage)    (get-internal-real-time))
     storage))
 
 (defun nearest-allowed-size (size)

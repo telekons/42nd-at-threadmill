@@ -52,7 +52,7 @@
 (defun copy-into (old-storage new-storage hash-table)
   (let ((metadata-table (metadata-table new-storage))
         (hash-function  (hash-table-hash hash-table))
-        (size           (storage-size old-storage)))
+        (size           (length (metadata-table old-storage))))
     (loop
       (multiple-value-bind (start present?)
           (next-segment-to-copy old-storage size)
@@ -106,9 +106,8 @@
                 (writable group))
               (consume (this-key position h2)
                 (declare (ignore this-key))
-                (when (claim-key storage metadata
-                                 key +empty+ position
-                                 h2 (constantly nil))
+                (when (claim-key storage key +empty+ position
+                                 (constantly nil))
                   (loop for old-value = (value storage position)
                         do (when (eq old-value +copied+)
                              (return-from store-copied-value
