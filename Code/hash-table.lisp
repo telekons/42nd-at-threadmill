@@ -19,7 +19,7 @@ H1 is used to find a starting probe position in the table, and H2 is used as met
   "A cheap and usually incorrect MOD, which works when DIVISOR is a power of two."
   (logand number (1- divisor)))
 
-(defconstant +probe-limit+ 8
+(defconstant +probe-limit+ 4
   "The maximum number of groups to probe.")
 
 (declaim (inline call-with-positions))
@@ -90,17 +90,13 @@ H1 is used to find a starting probe position in the table, and H2 is used as met
                 (test-empty (group base-position)
                    ;; We only fill groups from start to end, so we can
                    ;; just test the last entry to figure if
-                   ;; any were empty. We can't just test metadata, because
-                   ;; it can be out of date; usually this is fine, but when
-                   ;; testing if our key may be in another group, this is
-                   ;; certainly not fine.
+                   ;; any were empty.
                    (declare (ignore group))
                    (let ((last-in-group
                            (+ base-position -1 +metadata-entries-per-group+)))
-                     (when (and (= +empty-metadata+
-                                   (metadata metadata
-                                             last-in-group))
-                                (eq +empty+ (key storage last-in-group)))
+                     (when (= +empty-metadata+
+                              (metadata metadata
+                                        last-in-group))
                        (return-from gethash (values default nil))))))
       (call-with-positions storage metadata
                            hash #'test #'mask #'consume
@@ -108,14 +104,25 @@ H1 is used to find a starting probe position in the table, and H2 is used as met
       (values default nil))))
 
 (declaim (inline claim-key))
-(defun claim-key (storage key this-key position test)
+(defun claim-key (storage metadata key this-key position test h2)
   "Attempt to claim a position in the table, returning values:
 NIL, NIL if another thread claimed it for another key first
 T,   NIL if this position already was claimed with this key
 T,   T   if we successfully claimed this position"
   (declare (optimize (speed 3) (safety 0))
            (vector-index position)
+           (metadata-vector metadata)
+           (simple-vector storage)
+           ((unsigned-byte 8) h2)
            (function test))
+  (loop for value = (metadata metadata position)
+        do (when (= value h2)
+             (return))
+           (when (/= value +empty-metadata+)
+             (return-from claim-key (values nil nil)))
+           (when (cas-metadata metadata position
+                               +empty-metadata+ h2)
+               (return)))
   (loop
     (unless (eq this-key +empty+)
       (when (or (eq this-key key)
@@ -147,8 +154,9 @@ T,   T   if we successfully claimed this position"
                                (bytes metadata group)))
                 (consume (this-key position h2)
                   (multiple-value-bind (ours? new?)
-                      (claim-key storage key this-key position
-                                 test-function)
+                      (claim-key storage metadata
+                                 key this-key position
+                                 test-function h2)
                     (unless ours?
                       ;; Another thread got this position.
                       (return-from consume))
@@ -160,8 +168,6 @@ T,   T   if we successfully claimed this position"
                                (when (eq old-value +empty+)
                                  (increment-counter (table-count storage)))
                                (return)))
-                    (when new?
-                      (atomic-setf (metadata metadata position) h2))
                     (return-from gethash new-value))))
       (call-with-positions storage metadata
                            hash #'test #'mask #'consume)
@@ -186,13 +192,12 @@ T,   T   if we successfully claimed this position"
                 ;;; Otherwise it's less of a hassle to implement just this one
                 ;;; function rather than PUT-IF-MATCH, PUT-IF-ABSENT, etc.
                   (multiple-value-bind (ours? new?)
-                      (claim-key storage key this-key position
-                                 test-function)
+                      (claim-key storage metadata
+                                 key this-key position
+                                 test-function h2)
                     (unless ours?
                       ;; Another thread got this position.
                       (return-from consume))
-                    (when new?
-                      (atomic-setf (metadata metadata position) h2))
                     (loop
                       (let ((value (value storage position)))
                         (when (eq value +copied+)
@@ -257,10 +262,7 @@ T,   T   if we successfully claimed this position"
                    (declare (ignore group))
                    (let ((last-in-group
                            (+ base-position -1 +metadata-entries-per-group+)))
-                     (when (and (= +empty-metadata+
-                                   (metadata metadata
-                                             last-in-group))
-                                (eq +empty+ (key storage last-in-group)))
+                     (when (= +empty-metadata+ (metadata metadata last-in-group))
                        (return-from remhash nil)))))
       (call-with-positions storage metadata hash
                            #'test #'mask #'consume

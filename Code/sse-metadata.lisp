@@ -86,6 +86,10 @@ Note that N has a length of an element."
   (declare (vector-index position))
   (aref vector position))
 
+(defun cas-metadata (vector position old-value new-value)
+  (= old-value
+     (cas-byte vector position old-value new-value)))
+
 (defun (setf metadata) (new-value vector position)
   (declare (vector-index position))
   (setf (aref vector position) new-value))

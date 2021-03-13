@@ -106,8 +106,8 @@
                 (writable group))
               (consume (this-key position h2)
                 (declare (ignore this-key))
-                (when (claim-key storage key +empty+ position
-                                 (constantly nil))
+                (when (claim-key storage metadata key +empty+ position
+                                 (constantly nil) h2)
                   (loop for old-value = (value storage position)
                         do (when (eq old-value +copied+)
                              (return-from store-copied-value
