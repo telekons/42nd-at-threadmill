@@ -57,6 +57,7 @@
       (multiple-value-bind (start present?)
           (next-segment-to-copy old-storage size)
         (unless present?
+          (bt:thread-yield)
           (return))
         (copy-segment hash-table
                       old-storage metadata-table new-storage
