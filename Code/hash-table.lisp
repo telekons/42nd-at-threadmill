@@ -201,6 +201,7 @@ T,   T   if we successfully claimed this position"
                     (loop
                       (let ((value (value storage position)))
                         (when (eq value +copied+)
+                          (help-copy hash-table storage)
                           (return-from modhash
                             (modhash key hash-table modifier)))
                         (multiple-value-bind (new-value new-present?)
