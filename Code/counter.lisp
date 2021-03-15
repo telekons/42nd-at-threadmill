@@ -22,7 +22,8 @@
 
 (declaim (inline change-counter increment-counter decrement-counter))
 (defun change-counter (counter Δ)
-  (declare (counter counter))
+  (declare (counter counter)
+           (optimize (speed 3) (safety 0)))
   (atomics:atomic-incf (aref counter *counter-offset*) Δ))
 
 (defun increment-counter (counter)

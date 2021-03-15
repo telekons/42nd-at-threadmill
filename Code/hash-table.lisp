@@ -212,6 +212,9 @@ T,   T   if we successfully claimed this position"
                                      value (not (eq value +empty+)))
                           (cond
                             (new-present?
+                             (when (eq value new-value)
+                               ;; Nothing to do.
+                               (return-from modhash))
                              (when (atomics:cas (value storage position)
                                                 value new-value)
                                ;; We only increment if we just brought this slot
@@ -220,9 +223,11 @@ T,   T   if we successfully claimed this position"
                                  (increment-counter (table-count storage)))
                                (return-from modhash)))
                             (t
+                             (when (eq value +empty+)
+                               ;; Nothing to do.
+                               (return-from modhash))
                              (when (atomics:cas (value storage position)
                                                 value +empty+)
-                               ;; We only decrement if the slot was live before.
                                (unless (eq value +empty+)
                                  (decrement-counter (table-count storage)))
                                (return-from modhash))))))))))
@@ -278,17 +283,26 @@ T,   T   if we successfully claimed this position"
   (loop for storage = (hash-table-storage hash-table)
         until (null (new-vector storage))
         do (help-copy hash-table storage))
-  (let* ((storage (hash-table-storage hash-table))
-         (length (length (metadata-table storage))))
-    ;; This procedure is lifted from Cliff Click's table, but it will certainly
-    ;; not include copied entries.
-    (dotimes (n length)
-      (let ((k (key   storage n))
-            (v (value storage n)))
-        (unless (or (eq k +empty+)
-                    (eq v +empty+)
-                    (eq v +copied+))
-          (funcall function k v))))))
+  (tagbody try-again
+     ;; Try to copy out the hash table contents to an alist.
+     (let* ((storage (hash-table-storage hash-table))
+            (length (length (metadata-table storage)))
+            (alist '()))
+       (dotimes (n length)
+         (let ((k (key   storage n))
+               (v (value storage n)))
+           (unless (or (eq k +empty+)
+                       (eq v +empty+))
+             (when (eq v +copied+)
+               (help-copy hash-table storage)
+               (go try-again))
+             (push (cons k v) alist))))
+       (mapc (lambda (pair)
+               (funcall function
+                        (car pair)
+                        (cdr pair)))
+             alist)))
+  hash-table)
 
 (defun hash-table-count (hash-table)
   (counter-value (table-count (hash-table-storage hash-table))))
