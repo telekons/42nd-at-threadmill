@@ -2,11 +2,11 @@
 
 (defun too-new-p (hash-table)
   "Was the last resize performed recently?"
-  ;; If the last resize was done in the last 5ms, we probably should grow,
+  ;; If the last resize was done in the last 2ms, we probably should grow,
   ;; regardless of load factor.
   (< (creation-time (hash-table-storage hash-table))
      (- (get-internal-real-time)
-        (* 0.005 internal-time-units-per-second))))
+        (* 0.002 internal-time-units-per-second))))
 
 (defun help-copy (hash-table storage)
   ;; If the storage vector was already swapped out, bail out.
@@ -14,7 +14,8 @@
     (return-from help-copy))
   (let* ((old-size (hash-table-size hash-table))
          (new-size
-           (if (or (> (/ (hash-table-count hash-table)
+           (if (or (too-new-p hash-table)
+                   (> (/ (hash-table-count hash-table)
                          (float old-size))
                       0.5)
                    (> (/ (hash-table-count hash-table)

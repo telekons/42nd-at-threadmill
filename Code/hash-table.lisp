@@ -163,6 +163,9 @@ T,   T   if we successfully claimed this position"
                     (loop for old-value = (value storage position)
                           do (when (eq old-value +copied+)
                                (lose-and-resize))
+                             (when (eq old-value new-value)
+                               ;; Sure, that'll do.
+                               (return))
                              (when (atomics:cas (value storage position)
                                                 old-value new-value)
                                (when (eq old-value +empty+)
