@@ -18,7 +18,7 @@
          (new-size
            (if (or (> (/ (hash-table-count hash-table)
                          (float old-size))
-                      (hash-table-load-factor hash-table))
+                      (hash-table-rehash-threshold hash-table))
                    (> (/ (hash-table-count hash-table)
                          (float (counter-value (table-slot-count storage))))
                       0.75))
