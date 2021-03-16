@@ -38,7 +38,7 @@
           (continuation new-vector)))
       ;; Else, wait for another thread to create the new vector.
       (loop while (null (new-vector storage))
-            do (sleep (* 0.008 megabytes)))
+            do (sleep (* 8e-5 megabytes)))
       (continuation (new-vector storage)))))
 
 ;;; Copying is done in "segments". Each thread repeatedly claims
