@@ -23,8 +23,7 @@
                       0.75))
                (* old-size 2)
                old-size))
-         (megabytes (ash (* new-size 16) -20))
-         (own-vector nil))
+         (megabytes (ash (* new-size 16) -20)))
     (flet ((continuation (new-vector)
              (return-from help-copy
                (copy-into storage new-vector hash-table))))
@@ -32,6 +31,7 @@
         (continuation (new-vector storage)))
       ;; Offer to make the new vector.
       (when (atomics:cas (allocating-new-p storage) nil t)
+        #+(or)
         (format t "~&Creating a ~d element storage vector" new-size)
         (let ((new-vector (make-storage-vector new-size)))
           (atomic-setf (new-vector storage) new-vector)
