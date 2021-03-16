@@ -16,10 +16,9 @@
     (return-from help-copy))
   (let* ((old-size (hash-table-size hash-table))
          (new-size
-           (if (or #+(or) (too-new-p hash-table)
-                   (> (/ (hash-table-count hash-table)
+           (if (or (> (/ (hash-table-count hash-table)
                          (float old-size))
-                      0.5)
+                      (hash-table-load-factor hash-table))
                    (> (/ (hash-table-count hash-table)
                          (float (counter-value (table-slot-count storage))))
                       0.75))
@@ -33,7 +32,7 @@
         (continuation (new-vector storage)))
       ;; Offer to make the new vector.
       (when (atomics:cas (allocating-new-p storage) nil t)
-        #+(or)
+        #+log-copying
         (format t "~&Creating a ~d element storage vector" new-size)
         (let ((new-vector (make-storage-vector new-size)))
           (atomic-setf (new-vector storage) new-vector)
@@ -57,6 +56,13 @@
            (when (atomics:cas (going-to-copy storage)
                               old-value new-value)
              (return (values old-value t)))))
+
+(defun report-finished-copying (new-storage)
+  (declare (ignorable new-storage))
+  #+log-copying
+  (format t "~&Finished copying after ~8e seconds"
+          (/ (- (get-internal-real-time) (creation-time new-storage))
+             internal-time-units-per-second)))
 
 (defun copy-into (old-storage new-storage hash-table)
   (let ((metadata-table (metadata-table new-storage))
@@ -84,6 +90,7 @@
                         (when (null (new-vector new-storage))
                           (atomic-setf (hash-table-storage hash-table)
                                        new-storage))
+                        (report-finished-copying new-storage)
                         (return-from copy-into)))))))
 
 (defun copy-segment (hash-table old-storage metadata new-storage
@@ -144,6 +151,6 @@
         (return (continuation (new-vector storage))))
       (let ((new-storage (make-storage-vector (* 2 size))))
         (when (atomics:cas (new-vector storage) nil new-storage)
-          #+(or)
+          #+log-copying
           (warn "Failed to copy; doing a recursive copy.")
           (return (continuation new-storage)))))))

@@ -40,6 +40,14 @@ As Click requires us to pin keys to entries, we don't ever use tombstone
 metadata. The metadata for a dead entry remains in the metadata table,
 as we need to be able to find the right key entry to reuse quickly.
 
+We have a somewhat improved load factor, but it is not as extreme as
+Kulukundis's demonstration. Kulukundis could approach a load factor of
+87.5%, but we find that 50% is the best tradeoff between space and
+throughput with our table. However, we still have improved over
+Click's table -- Click doubles the table size with 25% live keys, and
+quadruples with 50% live, in order to "avoid endless
+reprobing". Faster probing lets us get away with just doubling at 50%.
+
 ## Previous work
 
 This concurrent hash table is based off the
