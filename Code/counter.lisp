@@ -2,7 +2,7 @@
 
 ;;; Cliff Click uses a counter which self-resizes, not unlike the hash table
 ;;; itself, but that's kinda messy.
-(defconstant +counter-slots+ 32)
+(defconstant +counter-slots+ 64)
 (deftype counter ()
   `(simple-array sb-ext:word (,+counter-slots+)))
 (deftype counter-offset ()

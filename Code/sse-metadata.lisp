@@ -22,11 +22,17 @@
   (declare ((unsigned-byte 8) h2))
   (logand #x7f h2))
 
-(defun bytes (byte group)
-  "Return matches for a byte in a metadata group."
-  (declare ((unsigned-byte 8) byte))
-  (sse:movemask-pi8
-   (sse:=-pi8 (sse:set1-pi8 byte) group)))
+(if avx2-supported
+    (defun bytes (byte group)
+      "Return matches for a byte in a metadata group."
+      (declare ((unsigned-byte 8) byte))
+      (sse:movemask-pi8
+       (sse:=-pi8 (%avx2-broadcast byte) group)))
+    (defun bytes (byte group)
+      "Return matches for a byte in a metadata group."
+      (declare ((unsigned-byte 8) byte))
+      (sse:movemask-pi8
+       (sse:=-pi8 (sse:set1-pi8 byte) group))))
 
 (defun writable (group)
   "Return matches for metadata bytes we can put new mappings in."

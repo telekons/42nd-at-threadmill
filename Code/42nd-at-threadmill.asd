@@ -2,8 +2,11 @@
   :depends-on (:atomics :cl-simd :bordeaux-threads)
   :serial t
   :components ((:file "package")
-               (:file "bsf")
-               (:file "cas-bytes")
+               (:module "VOPs"
+                :components
+                ((:file "avx2-broadcastb")
+                 (:file "bsf")
+                 (:file "cas-bytes")))
                (:file "counter")
                (:file "sse-metadata")
                (:file "storage-vector")
