@@ -19,7 +19,7 @@
            (if (or #+(or) (too-new-p hash-table)
                    (> (/ (hash-table-count hash-table)
                          (float old-size))
-                      0.75)
+                      0.5)
                    (> (/ (hash-table-count hash-table)
                          (float (counter-value (table-slot-count storage))))
                       0.75))
