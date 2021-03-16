@@ -20,7 +20,8 @@
   (def going-to-copy 3)
   (def table-count 4)
   (def table-slot-count 5)
-  (def creation-time 6))
+  (def creation-time 6)
+  (def allocating-new-p 7))
 
 (declaim (inline metadata-table))
 (defun metadata-table (storage)
@@ -43,7 +44,8 @@
           (going-to-copy storage)    0
           (table-count storage)      (make-counter)
           (table-slot-count storage) (make-counter)
-          (creation-time storage)    (get-internal-real-time))
+          (creation-time storage)    (get-internal-real-time)
+          (allocating-new-p storage) nil)
     storage))
 
 (defun nearest-allowed-size (size)

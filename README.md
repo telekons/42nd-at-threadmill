@@ -14,9 +14,11 @@ introduction to both tables.
 
 This library requires a pre-2.1.0 version of SBCL, an AMD64 processor,
 and our [fork of the cl-simd
-library](https://github.com/no-defun-allowed/cl-simd). We admittedly
-only partially unbroke cl-simd; and 2.1.0 changes the assembler in
-ways we don't know how to adapt to.
+library](https://github.com/no-defun-allowed/cl-simd). We use SSE2
+intrinsics for fast probing, also optionally using AVX2 for faster
+byte broadcasting, though we admittedly only partially unbroke
+cl-simd; and 2.1.0 changes the assembler in ways we don't know how to
+adapt to.
 
 ## Pictures of a benchmark
 

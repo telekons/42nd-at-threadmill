@@ -2,11 +2,11 @@
 
 (defun too-new-p (hash-table)
   "Was the last resize performed recently?"
-  ;; If the last resize was done in the last 2ms, we probably should grow,
+  ;; If the last resize was done in the last 5ms, we probably should grow,
   ;; regardless of load factor.
   (< (creation-time (hash-table-storage hash-table))
      (- (get-internal-real-time)
-        (* 0.002 internal-time-units-per-second))))
+        (* 0.005 internal-time-units-per-second))))
 
 (defun help-copy (hash-table storage)
   ;; If the storage vector was already swapped out, bail out.
@@ -17,23 +17,29 @@
            (if (or (too-new-p hash-table)
                    (> (/ (hash-table-count hash-table)
                          (float old-size))
-                      0.5)
+                      0.75)
                    (> (/ (hash-table-count hash-table)
                          (float (counter-value (table-slot-count storage))))
                       0.75))
                (* old-size 2)
                old-size))
+         (megabytes (ash (* new-size 16) -20))
          (own-vector nil))
-    (loop
-      (let ((new-vector (new-vector storage)))
-        (unless (null new-vector)
-          (return-from help-copy
-            (copy-into storage new-vector hash-table)))
-        (when (null own-vector)
-          (setf own-vector (make-storage-vector new-size)))
-        (when (atomics:cas (new-vector storage) nil own-vector)
-          (return-from help-copy
-            (copy-into storage own-vector hash-table)))))))
+    (flet ((continuation (new-vector)
+             (return-from help-copy
+               (copy-into storage new-vector hash-table))))
+      (unless (null (new-vector storage))
+        (continuation (new-vector storage)))
+      ;; Offer to make the new vector.
+      (when (atomics:cas (allocating-new-p storage) nil t)
+        (format t "~&Creating a ~d element storage vector" new-size)
+        (let ((new-vector (make-storage-vector new-size)))
+          (atomic-setf (new-vector storage) new-vector)
+          (continuation new-vector)))
+      ;; Else, wait for another thread to create the new vector.
+      (loop while (null (new-vector storage))
+            do (sleep (* 0.008 megabytes)))
+      (continuation (new-vector storage)))))
 
 ;;; Copying is done in "segments". Each thread repeatedly claims
 ;;; segments of the storage vector to copy into the new vector, until there
