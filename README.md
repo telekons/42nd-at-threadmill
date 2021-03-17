@@ -12,13 +12,12 @@ Step by Step"
 presentation](https://www.youtube.com/watch?v=ncHmEUmJZf4) for an
 introduction to both tables.
 
-This library requires a pre-2.1.0 version of SBCL, an AMD64 processor,
-and our [fork of the cl-simd
-library](https://github.com/no-defun-allowed/cl-simd). We use SSE2
-intrinsics for fast probing, also optionally using AVX2 for faster
-byte broadcasting, though we admittedly only partially unbroke
-cl-simd; and 2.1.0 changes the assembler in ways we don't know how to
-adapt to.
+We use SSE2 intrinsics for fast probing, and optionally use AVX2 for
+faster byte broadcasting. This library requires a pre-2.1.0 version of
+SBCL, an AMD64 processor, and our [fork of the cl-simd
+library](https://github.com/no-defun-allowed/cl-simd). We sadly can't get
+this hash table to run on SBCL 2.1.0, as it changes the assembler in
+ways we don't know how to fix.
 
 ## Pictures of a benchmark
 
