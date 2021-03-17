@@ -83,9 +83,9 @@
               until (atomics:cas (finished-copying old-storage)
                                  old-value (+ old-value +segment-size+))
               ;; When we copied the last segment, install the new table.
-              ;; Note that if one thread leaves, in order to start work on a
-              ;; new table, then this won't complete; we want that, so that
-              ;; only the table which everyone succeeds with will be installed.
+              ;; Note that if a thread creates a recursive copy (which is
+              ;; definitely going to be linked here before we return from
+              ;; COPY-SEGMENT), we do not install the new table.
               finally (when (>= new-value size)
                         (when (null (new-vector new-storage))
                           (atomic-setf (hash-table-storage hash-table)
