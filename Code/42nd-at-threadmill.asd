@@ -2,13 +2,15 @@
   :depends-on (:atomics :cl-simd :bordeaux-threads)
   :serial t
   :components ((:file "package")
-               (:module "VOPs"
+               (:module "x86-64"
                 :components
-                ((:file "avx2-broadcastb")
-                 (:file "bsf")
-                 (:file "cas-bytes")))
+                ((:module "VOPs"
+                  :components
+                  ((:file "avx2-broadcastb")
+                   (:file "bsf")
+                   (:file "cas-bytes")))
+                 (:file "sse-metadata")))
                (:file "counter")
-               (:file "sse-metadata")
                (:file "storage-vector")
                (:file "hash-table-defstruct")
                (:file "hash-table")

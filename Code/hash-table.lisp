@@ -43,12 +43,14 @@ H1 is used to find a starting probe position in the table, and H2 is used as met
                (fixnum probed))
       (loop
         (let ((group (metadata-group metadata probe-position))
-              (metadata (mask-h2 h2)))
-          (do-matches (entry-offset (funcall mask-generator group metadata))
+              (expected-metadata (mask-h2 h2)))
+          (do-matches (entry-offset
+                       (funcall mask-generator group expected-metadata))
             (let* ((entry-position (+ entry-offset probe-position))
                    (this-key (key storage entry-position)))
               (when (funcall test this-key)
-                (funcall continuation this-key entry-position metadata))))
+                (funcall continuation
+                         this-key entry-position expected-metadata))))
           (funcall after-group group probe-position))
         (incf probed)
         (setf probe-position
