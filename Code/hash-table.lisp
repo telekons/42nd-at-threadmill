@@ -36,14 +36,14 @@ H1 is used to find a starting probe position in the table, and H2 is used as met
     (let* ((probed 0)
            (length         (length metadata))
            (groups         (floor length +metadata-entries-per-group+))
-           (probe-limit    (min length +probe-limit+))
+           (probe-limit    (min groups +probe-limit+))
            (probe-position (* +metadata-entries-per-group+
-                              (cheap-mod h1 groups))))
+                              (cheap-mod h1 groups)))
+           (expected-metadata (mask-h2 h2)))
       (declare (vector-index probe-position)
                (fixnum probed))
       (loop
-        (let ((group (metadata-group metadata probe-position))
-              (expected-metadata (mask-h2 h2)))
+        (let ((group (metadata-group metadata probe-position)))
           (do-matches (entry-offset
                        (funcall mask-generator group expected-metadata))
             (let* ((entry-position (+ entry-offset probe-position))
@@ -82,11 +82,11 @@ H1 is used to find a starting probe position in the table, and H2 is used as met
                 (consume (this-key position h2)
                   (declare (ignore this-key h2))
                   (let ((value (value storage position)))
+                    (when (eq value +empty+)
+                      (return-from gethash (values default nil)))
                     (when (eq value +copied+)
                       (help-copy hash-table storage)
                       (return-from gethash (gethash key hash-table)))
-                    (when (eq value +empty+)
-                      (return-from gethash (values default nil)))
                     (return-from gethash
                       (values value t))))
                 (test-empty (group base-position)
@@ -97,8 +97,7 @@ H1 is used to find a starting probe position in the table, and H2 is used as met
                    (let ((last-in-group
                            (+ base-position -1 +metadata-entries-per-group+)))
                      (when (= +empty-metadata+
-                              (metadata metadata
-                                        last-in-group))
+                              (metadata metadata last-in-group))
                        (return-from gethash (values default nil))))))
       (call-with-positions storage metadata
                            hash #'test #'mask #'consume

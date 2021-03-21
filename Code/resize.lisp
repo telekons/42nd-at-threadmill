@@ -45,7 +45,7 @@
 ;;; Copying is done in "segments". Each thread repeatedly claims
 ;;; segments of the storage vector to copy into the new vector, until there
 ;;; are no more segments to copy.
-(defconstant +segment-size+ 1024)
+(defconstant +segment-size+ 4096)
 
 (defun next-segment-to-copy (storage size)
   (loop for old-value = (going-to-copy storage)
