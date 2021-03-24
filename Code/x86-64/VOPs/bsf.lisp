@@ -25,3 +25,8 @@
 (defun bsf/16 (x)
   (declare ((unsigned-byte 16) x))
   (sb-ext:truly-the (mod 16) (bsf x)))
+
+(declaim (inline bsf/32))
+(defun bsf/32 (x)
+  (declare ((unsigned-byte 32) x))
+  (sb-ext:truly-the (mod 32) (bsf x)))
