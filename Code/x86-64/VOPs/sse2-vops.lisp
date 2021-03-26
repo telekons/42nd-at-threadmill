@@ -1,15 +1,18 @@
 (in-package :threadmill)
 
 (defmacro define-boring-vop (name args result &body generator)
-  `(sb-vm::define-vop (,name)
-     (:translate ,name)
-     (:policy :fast-safe)
-     (:args ,@(loop for (name nil . rest) in args
-                    collect (cons name rest)))
-     (:arg-types ,@(mapcar #'second args))
-     (:results (,(first result) ,@(rest (rest result))))
-     (:result-types ,(second result))
-     (:generator 0 ,@generator)))
+  `(progn
+     (sb-vm::define-vop (,name)
+       (:translate ,name)
+       (:policy :fast-safe)
+       (:args ,@(loop for (name nil . rest) in args
+                      collect (cons name rest)))
+       (:arg-types ,@(mapcar #'second args))
+       (:results (,(first result) ,@(rest (rest result))))
+       (:result-types ,(second result))
+       (:generator 0 ,@generator))
+     (defun ,name ,(mapcar #'first args)
+       (,name ,@(mapcar #'first args)))))
 
 (in-package :sb-vm)
 
@@ -66,17 +69,3 @@
   (unless (location= a result)
     (inst movdqa result a))
   (inst pcmpeqb result b))
-
-(in-package :threadmill)
-
-(defun %sse2-load (vector index)
-  (%sse2-load vector index))
-
-(defun %sse2-broadcast-byte (byte)
-  (%sse2-broadcast-byte byte))
-
-(defun %sse2-movemask (bytes)
-  (%sse2-movemask bytes))
-
-(defun %sse2= (a b)
-  (%sse2= a b))
