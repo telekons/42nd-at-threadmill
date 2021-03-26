@@ -22,7 +22,7 @@
   (declare ((unsigned-byte 8) h2))
   (logand #x7f h2))
 
-(if avx2-supported
+(if (= 1 avx2-supported)
     (defun bytes (byte group)
       "Return matches for a byte in a metadata group."
       (declare ((unsigned-byte 8) byte))
