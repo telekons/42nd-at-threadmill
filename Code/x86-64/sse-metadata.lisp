@@ -4,9 +4,9 @@
   "The number of metadata entries we store per group.")
 
 (deftype metadata-group ()
-  `(sse:sse-pack (unsigned-byte 8)))
+  `(sb-ext:simd-pack (unsigned-byte 8)))
 (deftype metadata-vector ()
-  `(sse:sse-array (unsigned-byte 8) 1))
+  `(simple-array (unsigned-byte 8) 1))
 (deftype metadata-index ()
   `(mod ,(floor most-positive-fixnum +metadata-entries-per-group+)))
 (deftype vector-index ()
@@ -26,19 +26,19 @@
     (defun bytes (byte group)
       "Return matches for a byte in a metadata group."
       (declare ((unsigned-byte 8) byte))
-      (sse:movemask-pi8
-       (sse:=-pi8 (%avx2-broadcast byte) group)))
+      (%sse2-movemask
+       (%sse2= (%avx2-broadcast byte) group)))
     (defun bytes (byte group)
       "Return matches for a byte in a metadata group."
       (declare ((unsigned-byte 8) byte))
-      (sse:movemask-pi8
-       (sse:=-pi8 (sse:set1-pi8 byte) group))))
+      (%sse2-movemask
+       (%sse2= (%sse2-broadcast-byte byte) group))))
 
 (defun writable (group)
   "Return matches for metadata bytes we can put new mappings in."
   ;; movemask tests the high bit of each byte, and we want to test the
   ;; high bit, so we have nothing else to do. Magic!
-  (sse:movemask-pi8 group))
+  (%sse2-movemask group))
 
 (defun match-union (m1 m2)
   (logior m1 m2))
@@ -68,9 +68,9 @@
 
 (defun make-metadata-vector (size)
   "Create a metadata vector for a hash table of a given size, with all elements initialized to +EMPTY-METADATA+."
-  (let ((vector (sse:make-sse-array size
-                                    :element-type '(unsigned-byte 8)
-                                    :initial-element +empty-metadata+)))
+  (let ((vector (make-array size
+                            :element-type '(unsigned-byte 8)
+                            :initial-element +empty-metadata+)))
     vector))
 
 (declaim (inline metadata-group metadata-groups
@@ -82,8 +82,7 @@ Note that N has a length of an element."
   (declare (metadata-vector vector)
            (vector-index position)
            (optimize (speed 3) (safety 0)))
-  ;; Why won't SSE:AREF-PI work?
-  (sse:mem-ref-api (sb-sys:vector-sap vector) position))
+  (%sse2-load vector position))
 
 (defun metadata-groups (metadata)
   (floor (length metadata) +metadata-entries-per-group+))

@@ -13,11 +13,9 @@ presentation](https://www.youtube.com/watch?v=ncHmEUmJZf4) for an
 introduction to both tables.
 
 We use SSE2 intrinsics for fast probing, and optionally use AVX2 for
-faster byte broadcasting. This library requires a pre-2.1.0 version of
-SBCL, an AMD64 processor, and our [fork of the cl-simd
-library](https://github.com/no-defun-allowed/cl-simd). We sadly can't get
-this hash table to run on SBCL 2.1.0, as it changes the assembler in
-ways we don't know how to fix.
+faster byte broadcasting. This library requires a post-2.0.5 version of
+SBCL, so that we can use some instructions introduced to the assembler
+around then.
 
 ## Pictures of a benchmark
 

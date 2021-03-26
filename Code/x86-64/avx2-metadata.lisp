@@ -4,9 +4,9 @@
   "The number of metadata entries we store per group.")
 
 (deftype metadata-group ()
-  `(sse:sse-pack (unsigned-byte 8)))
+  `(sb-ext:simd-pack-256 integer))
 (deftype metadata-vector ()
-  `(sse:sse-array (unsigned-byte 8) 1))
+  `(simple-array (unsigned-byte 8) 1))
 (deftype metadata-index ()
   `(mod ,(floor most-positive-fixnum +metadata-entries-per-group+)))
 (deftype vector-index ()
