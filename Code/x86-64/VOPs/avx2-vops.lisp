@@ -30,22 +30,17 @@
 (defknown threadmill::%avx2-load
     ((simple-array (unsigned-byte 8) (*)) (unsigned-byte 64))
     (simd-pack-256 integer)
-    (foldable movable flushable)
+    (foldable flushable)
   :overwrite-fndb-silently t)
 
-(define-vop (threadmill::%avx2-load)
-  (:translate threadmill::%avx2-load)
-  (:policy :fast-safe)
-  (:args (vector :scs (descriptor-reg))
-         (index  :scs (unsigned-reg)))
-  (:arg-types simple-array-unsigned-byte-8 unsigned-num)
-  (:results (bytes :scs (int-avx2-reg)))
-  (:result-types simd-pack-256-int)
-  (:generator 0
-     (inst vmovdqu bytes
-           (ea (- (* vector-data-offset n-word-bytes)
-                  other-pointer-lowtag)
-               vector index 1))))
+(threadmill::define-boring-vop threadmill::%avx2-load
+    ((vector simple-array-unsigned-byte-8 :scs (descriptor-reg))
+     (index  unsigned-num :scs (unsigned-reg)))
+    (bytes simd-pack-256-int :scs (int-avx2-reg))
+  (inst vmovdqu bytes
+        (ea (- (* vector-data-offset n-word-bytes)
+               other-pointer-lowtag)
+            vector index 1)))
 
 (defknown threadmill::%avx2-movemask
     ((simd-pack-256 integer))
@@ -53,59 +48,29 @@
     (foldable movable flushable)
   :overwrite-fndb-silently t)
 
-(define-vop (threadmill::%avx2-movemask)
-  (:translate threadmill::%avx2-movemask)
-  (:policy :fast-safe)
-  (:args (pack :scs (int-avx2-reg)))
-  (:arg-types simd-pack-256-int)
-  (:results (mask :scs (unsigned-reg)))
-  (:result-types unsigned-num)
-  (:generator 0
-     (inst vpmovmskb mask pack :hword)))
+(threadmill::define-boring-vop threadmill::%avx2-movemask
+    ((pack simd-pack-256-int :scs (int-avx2-reg)))
+    (mask unsigned-num :scs (unsigned-reg))
+  (inst vpmovmskb mask pack :hword))
 
 (defknown threadmill::%avx2-broadcast/256 ((unsigned-byte 8))
     (simd-pack-256 integer)
     (foldable movable flushable)
   :overwrite-fndb-silently t)
 
-(define-vop (threadmill::%avx2-broadcast/256)
-  (:translate threadmill::%avx2-broadcast/256)
-  (:policy :fast-safe)
-  (:args (byte :scs (unsigned-reg)))
-  (:arg-types unsigned-num)
-  (:temporary (:sc int-avx2-reg) temp)
-  (:results (broadcasted :scs (int-avx2-reg)))
-  (:result-types simd-pack-256-int)
-  (:generator 0
-     (inst movq temp byte)
-     (inst vpbroadcastb broadcasted temp)))
+(threadmill::define-boring-vop threadmill::%avx2-broadcast/256
+    ((byte unsigned-num :scs (unsigned-reg)))
+    (broadcasted simd-pack-256-int :scs (int-avx2-reg))
+  (inst movq broadcasted byte)
+  (inst vpbroadcastb broadcasted broadcasted))
 
 (defknown threadmill::%avx2= ((simd-pack-256 integer) (simd-pack-256 integer))
     (simd-pack-256 integer)
     (foldable movable flushable)
   :overwrite-fndb-silently t)
 
-(define-vop (threadmill::%avx2=)
-  (:translate threadmill::%avx2=)
-  (:policy :fast-safe)
-  (:args (pack1 :scs (int-avx2-reg))
-         (pack2 :scs (int-avx2-reg)))
-  (:arg-types simd-pack-256-int simd-pack-256-int)
-  (:results (equals :scs (int-avx2-reg)))
-  (:result-types simd-pack-256-int)
-  (:generator 0
-     (inst vpcmpeqb equals pack1 pack2)))
-
-(in-package :threadmill)
-
-(defun %avx2-load (ub8-vector index)
-  (%avx2-load ub8-vector index))
-
-(defun %avx2-movemask (pack)
-  (%avx2-movemask pack))
-
-(defun %avx2-broadcast/256 (byte)
-  (%avx2-broadcast/256 byte))
-
-(defun %avx2= (pack1 pack2)
-  (%avx2= pack1 pack2))
+(threadmill::define-boring-vop threadmill::%avx2=
+    ((pack1 simd-pack-256-int :scs (int-avx2-reg))
+     (pack2 simd-pack-256-int :scs (int-avx2-reg)))
+    (equals simd-pack-256-int :scs (int-avx2-reg))
+  (inst vpcmpeqb equals pack1 pack2))

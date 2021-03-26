@@ -6,11 +6,19 @@
                 :components
                 ((:module "VOPs"
                   :components
-                  ((:file "avx2-broadcastb")
-                   (:file "sse2-vops")
+                  ((:file "define-boring-vop")
+                   (:file "avx2-broadcastb"
+                    :if-feature (:not :threadmill-avx2))
+                   (:file "sse2-vops"
+                    :if-feature (:not :threadmill-avx2))
+                   (:file "avx2-vops"
+                    :if-feature :threadmill-avx2)
                    (:file "bsf")
                    (:file "cas-bytes")))
-                 (:file "sse-metadata")))
+                 (:file "sse-metadata"
+                  :if-feature (:not :threadmill-avx2))
+                 (:file "avx2-metadata"
+                  :if-feature :threadmill-avx2)))
                (:file "counter")
                (:file "storage-vector")
                (:file "hash-table-defstruct")
