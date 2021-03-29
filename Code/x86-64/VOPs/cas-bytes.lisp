@@ -10,7 +10,7 @@
   (:translate threadmill::%cas-byte)
   (:policy :fast-safe)
   (:args (object :scs (descriptor-reg) :to :eval)
-         (index :scs (unsigned-reg immediate) :to :eval)
+         (index :scs (unsigned-reg) :to :eval)
          (old-value :scs (unsigned-reg))
          (new-value :scs (unsigned-reg)))
   (:arg-types simple-array-unsigned-byte-8 unsigned-num unsigned-num unsigned-num)
@@ -21,14 +21,11 @@
   (:result-types unsigned-num)
   (:generator 5
               (move rax old-value)
-              (inst cmpxchg :byte
-                    (ea (- (+ (if (sc-is index immediate) (tn-value index) 0)
-                              (* vector-data-offset n-word-bytes))
+              (inst cmpxchg :lock :byte
+                    (ea (- (* vector-data-offset n-word-bytes)
                            other-pointer-lowtag)
-                        object
-                        (if (sc-is index immediate) nil index)
-                        1)
-                    new-value :lock)
+                        object index 1)
+                    new-value)
               (move value rax)))
 
 (in-package :threadmill)
