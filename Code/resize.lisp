@@ -10,6 +10,10 @@
      (- (get-internal-real-time)
         (* 1.000 internal-time-units-per-second))))
 
+(defmacro atomic-setf (&body pairs)
+  `(sb-thread:barrier (:write)
+     (setf ,@pairs)))
+
 (defun help-copy (hash-table storage)
   ;; If the storage vector was already swapped out, bail out.
   (unless (eq storage (hash-table-storage hash-table))
@@ -68,9 +72,8 @@
              internal-time-units-per-second)))
 
 (defun copy-into (old-storage new-storage hash-table)
-  (let ((metadata-table (metadata-table new-storage))
-        (hash-function  (hash-table-hash hash-table))
-        (size           (length (metadata-table old-storage))))
+  (let ((hash-function  (hash-table-hash hash-table))
+        (size           (storage-vector-size old-storage)))
     (loop
       (multiple-value-bind (start present?)
           (next-segment-to-copy old-storage size)
@@ -78,7 +81,7 @@
           (bt:thread-yield)
           (return))
         (copy-segment hash-table
-                      old-storage metadata-table new-storage
+                      old-storage new-storage
                       start size hash-function)
         ;; Bump the copy progress.
         (loop for old-value = (finished-copying old-storage)
@@ -96,7 +99,7 @@
                         (report-finished-copying new-storage)
                         (return-from copy-into)))))))
 
-(defun copy-segment (hash-table old-storage metadata new-storage
+(defun copy-segment (hash-table old-storage new-storage
                      start size hash-function)
   (loop for position from start
           below (min size (+ start +segment-size+))
@@ -110,27 +113,22 @@
                          (eq v +empty+))
                ;; Store it in the new table.
                (store-copied-value hash-table
-                                   new-storage metadata
+                                   new-storage
                                    (funcall hash-function k)
                                    k v size)))))
 
-(defun store-copied-value (hash-table storage metadata hash key value size)
+(defun store-copied-value (hash-table storage hash key value size)
   "Attempt to copy a key and value."
   (declare (hash-table hash-table)
            (simple-vector storage)
-           (metadata-vector metadata)
            (fixnum size)
            (fixnum hash)
            #.+optimizations+)
   ;; Copying should never store duplicate keys. We exploit this to
   ;; avoid testing keys, instead only copying into new entries.
   (dx-labels ((test (this-key)
-                (declare (ignore this-key))
-                t)
-              (mask (group metadata)
-                (declare (ignore metadata))
-                (writable group))
-              (consume (this-key position h2)
+                (eq this-key +empty+))
+              (consume (this-key position)
                 (declare (ignore this-key))
                 (loop for old-key = (key storage position)
                       do (unless (eq old-key +empty+)
@@ -138,7 +136,6 @@
                          (when (atomics:cas (key storage position)
                                             +empty+ key)
                            (return)))
-                (atomic-setf (metadata metadata position) h2)
                 (loop for old-value = (value storage position)
                       do (when (eq old-value +copied+)
                            (return-from store-copied-value
@@ -149,16 +146,14 @@
                            (return)))
                 (increment-counter (table-count storage))
                 (return-from store-copied-value)))
-    (call-with-positions storage metadata hash
-                         #'test #'mask #'consume)
+    (call-with-positions storage hash #'test #'consume)
     (recursive-copy hash-table storage hash key value size)))
 
 (defun recursive-copy (hash-table storage hash key value size)
   (flet ((continuation (new-storage)
-           (let ((new-metadata (metadata-table new-storage)))
-             (store-copied-value hash-table new-storage new-metadata
-                                 hash key value (length new-metadata))
-             (copy-into storage new-storage hash-table))))
+           (store-copied-value hash-table new-storage hash key value
+                               (storage-vector-size new-storage))
+           (copy-into storage new-storage hash-table)))
     (loop
       (unless (null (new-vector storage))
         (return (continuation (new-vector storage))))

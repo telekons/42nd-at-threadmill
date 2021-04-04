@@ -12,10 +12,12 @@ Step by Step"
 presentation](https://www.youtube.com/watch?v=ncHmEUmJZf4) for an
 introduction to both tables.
 
-We use SSE2 intrinsics for fast probing, and optionally use AVX2 for
+~~We use SSE2 intrinsics for fast probing, and optionally use AVX2 for
 faster byte broadcasting. This library requires a post-2.0.5 version of
 SBCL, so that we can use some instructions introduced to the assembler
-around then.
+around then.~~ This branch uses no vector instructions. Don't use this
+branch! It is only here so I could check if the fast probing actually
+made the hash table faster.
 
 ## Pictures of a benchmark
 

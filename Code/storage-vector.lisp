@@ -38,7 +38,7 @@
 (defun make-storage-vector (size)
   (let ((storage (make-array (+ (* size 2) +words-before-values+)
                              :initial-element +empty+)))
-    (setf (%metadata-table storage)  (make-metadata-vector size)
+    (setf (%metadata-table storage)  nil
           (new-vector storage)       nil
           (finished-copying storage) 0
           (going-to-copy storage)    0
@@ -48,7 +48,11 @@
           (allocating-new-p storage) nil)
     storage))
 
+(declaim (inline storage-vector-size))
+(defun storage-vector-size (vector)
+  (floor (- (length vector) +words-before-values+) 2))
+
 (defun nearest-allowed-size (size)
-  (max +metadata-entries-per-group+
+  (max 32
        ;; This form returns the next power of 2 above SIZE.
        (expt 2 (integer-length (1- size)))))
