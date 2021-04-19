@@ -1,6 +1,6 @@
 # A fast concurrent hash table.
 
-*42nd At Threadmill* is a non-blocking hash table based on Cliff
+*42nd At Threadmill* is a lock-free hash table based on Cliff
 Click's NonBlockingHashMap, and Abseil's `flat_hash_map`. We use the
 general layout of the former, and the fast metadata-based probing
 trick of the latter.
@@ -25,7 +25,9 @@ around then.
 
 We replace copied values with a single `+copied+` marker instead of
 an instance of a `Prime` class. This change generates less garbage
-when copying, and leads to slightly faster barrier code.
+when copying, and leads to slightly faster barrier code; though our table
+is not wait-free. (Truth be told, we're only barely getting a grip on Click's
+resize logic now.) 
 
 We also removed the <key, tombstone> state, having removes transition
 back to <key, empty>; a superficial change which doesn't appear to affect
