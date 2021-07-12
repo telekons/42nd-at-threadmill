@@ -1,6 +1,6 @@
 # A fast concurrent hash table.
 
-*42nd At Threadmill* is a lock-free hash table based on Cliff
+*42nd At Threadmill* is a nearly lock-free\* hash table based on Cliff
 Click's NonBlockingHashMap, and Abseil's `flat_hash_map`. We use the
 general layout of the former, and the fast metadata-based probing
 trick of the latter.
@@ -16,6 +16,10 @@ We use SSE2 intrinsics for fast probing, and optionally use AVX2 for
 faster byte broadcasting. This library requires a post-2.0.5 version of
 SBCL, so that we can use some instructions introduced to the assembler
 around then.
+
+\*Okay, we effectively lock to resize but it won't deadlock and it appears
+to be faster than using Click's lock-free resizing technique; so you tell me
+if that is an acceptable trade-off.
 
 ## Pictures of a benchmark
 
