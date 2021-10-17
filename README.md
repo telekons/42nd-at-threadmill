@@ -5,6 +5,10 @@ Click's NonBlockingHashMap, and Abseil's `flat_hash_map`. We use the
 general layout of the former, and the fast metadata-based probing
 trick of the latter.
 
+We are aware of the table being very, very picky with hash functions
+(Abseil's table is like that too, but I don't think it's *that* bad),
+so you might want to hold off using this table in production still.
+
 See [A Fast Wait-Free Hash
 Table](https://www.youtube.com/watch?v=WYXgtXWejRM) and [Matt
 Kulukundis's "Designing a Fast, Efficient, Cache-friendly Hash Table,
