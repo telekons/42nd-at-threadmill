@@ -20,7 +20,7 @@ H1 is used to find a starting probe position in the table, and H2 is used as met
   (logand number (1- divisor)))
 
 (defconstant +probe-limit+
-  (floor 128 +metadata-entries-per-group+)
+  (floor 256 +metadata-entries-per-group+)
   "The maximum number of groups to probe.")
 
 (declaim (inline call-with-positions))
@@ -56,7 +56,7 @@ H1 is used to find a starting probe position in the table, and H2 is used as met
         (incf probed)
         (setf probe-position
               (cheap-mod (+ probe-position +metadata-entries-per-group+)
-                         groups))
+                         length))
         (when (>= probed probe-limit)
           (return-from call-with-positions))))))
 
