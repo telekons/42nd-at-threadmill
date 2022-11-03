@@ -25,14 +25,14 @@
 (defun bytes (byte group)
   "Return matches for a byte in a metadata group."
   (declare ((unsigned-byte 8) byte))
-  (%avx2-movemask
-   (%avx2= (%avx2-broadcast/256 byte) group)))
+  (avx2:u8.32-movemask
+   (avx2:u8.32= group (avx2:u8.32 byte))))
 
 (defun writable (group)
   "Return matches for metadata bytes we can put new mappings in."
   ;; movemask tests the high bit of each byte, and we want to test the
   ;; high bit, so we have nothing else to do. Magic!
-  (%avx2-movemask group))
+  (avx2:u8.32-movemask group))
 
 (defun match-union (m1 m2)
   (logior m1 m2))
@@ -77,7 +77,7 @@ Note that N has a length of an element."
            (vector-index position)
            (optimize (speed 3) (safety 0)))
   ;; Why won't SSE:AREF-PI work?
-  (%avx2-load vector position))
+  (avx2:u8.32-aref vector position))
 
 (defun metadata-groups (metadata)
   (floor (length metadata) +metadata-entries-per-group+))
