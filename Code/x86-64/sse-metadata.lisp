@@ -22,23 +22,17 @@
   (declare ((unsigned-byte 8) h2))
   (logand #x7f h2))
 
-(if (= 1 avx2-supported)
-    (defun bytes (byte group)
-      "Return matches for a byte in a metadata group."
-      (declare ((unsigned-byte 8) byte))
-      (%sse2-movemask
-       (%sse2= (%avx2-broadcast byte) group)))
-    (defun bytes (byte group)
-      "Return matches for a byte in a metadata group."
-      (declare ((unsigned-byte 8) byte))
-      (%sse2-movemask
-       (%sse2= (%sse2-broadcast-byte byte) group))))
+(defun bytes (byte group)
+  "Return matches for a byte in a metadata group."
+  (declare ((unsigned-byte 8) byte))
+  (sse2:u8.16-movemask
+   (sse2:u8.16= group (%sse2-broadcast-byte byte))))
 
 (defun writable (group)
   "Return matches for metadata bytes we can put new mappings in."
   ;; movemask tests the high bit of each byte, and we want to test the
   ;; high bit, so we have nothing else to do. Magic!
-  (%sse2-movemask group))
+  (sse2:u8.16-movemask group))
 
 (defun match-union (m1 m2)
   (logior m1 m2))
@@ -82,7 +76,7 @@ Note that N has a length of an element."
   (declare (metadata-vector vector)
            (vector-index position)
            (optimize (speed 3) (safety 0)))
-  (%sse2-load vector position))
+  (sse2:u8.16-aref vector position))
 
 (defun metadata-groups (metadata)
   (floor (length metadata) +metadata-entries-per-group+))

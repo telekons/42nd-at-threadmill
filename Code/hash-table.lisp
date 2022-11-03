@@ -1,7 +1,5 @@
 (in-package :threadmill)
 
-(defconstant +empty+ '+empty+)
-(defconstant +copied+ '+copied+)
 ;; SBCL seems to have difficulties proving that we won't go out of
 ;; bounds. Fair enough, we have a funny way of addressing the table,
 ;; but we don't want to do bounds checks.

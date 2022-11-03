@@ -8,6 +8,9 @@
 ;;; 4. How many elements we are going to copy (used when resizing)
 ;;; Then the rest of the table just contains a key, then a value, and so on.
 
+(defconstant +empty+ '+empty+)
+(defconstant +copied+ '+copied+)
+
 ;;; We define macros so that we can SETF and CAS the position, without
 ;;; having to write setters and (unportable) CAS-ers.
 (defconstant +words-before-values+ 8)
